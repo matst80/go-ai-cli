@@ -47,6 +47,8 @@ The tool can be configured using the following environment variables:
 | `OLLAMA_MODEL` | The model name to use. | `ministral-3:latest` |
 | `BRAVE_API_KEY` | API key for Brave Search. Required to enable the `web_search` tool. | (None) |
 | `CHROME_REMOTE_URL` | URL or port for an existing Chrome instance to control via CDP (e.g., `9222` or `localhost:9222`). Can also be set via the `--cdp` flag. | (None, starts managed instance) |
+| `AI_STYLE` | Set the output theme (e.g., `dark`, `light`, `auto`). | `auto` |
+| `GLAMOUR_STYLE` | Fallback environment variable for the output theme. Compatible with `glow`. | (None) |
 
 Example:
 ```bash
@@ -58,6 +60,19 @@ export BRAVE_API_KEY="your_api_key_here"
 
 ```bash
 ./ai "How do I list files by size in the current directory?"
+```
+
+### Styling
+
+The tool automatically detects your terminal's background color. If you need to manually force a theme:
+
+```bash
+# Force light mode via flag
+./ai --style light "how to use grep?"
+
+# Force dark mode via environment variable
+export AI_STYLE=dark
+./ai "how to use grep?"
 ```
 
 

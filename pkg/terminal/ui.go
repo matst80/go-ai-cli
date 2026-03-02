@@ -2,6 +2,7 @@ package terminal
 
 import (
 	"fmt"
+	"os"
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -95,8 +96,21 @@ func (u *UI) View() string {
 		if w == 0 {
 			w = 80
 		}
+
+		style := os.Getenv("AI_STYLE")
+		if style == "" {
+			style = os.Getenv("GLAMOUR_STYLE")
+		}
+
+		var styleOpt glamour.TermRendererOption
+		if style != "" && style != "auto" {
+			styleOpt = glamour.WithStandardStyle(style)
+		} else {
+			styleOpt = glamour.WithAutoStyle()
+		}
+
 		u.renderer, _ = glamour.NewTermRenderer(
-			glamour.WithStandardStyle("dark"),
+			styleOpt,
 			glamour.WithWordWrap(w-2),
 		)
 	}

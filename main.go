@@ -15,7 +15,12 @@ import (
 
 func main() {
 	cdpFlag := flag.String("cdp", "", "Remote CDP URL or port (e.g. 9222 or localhost:9222)")
+	styleFlag := flag.String("style", "", "Output style (dark, light, or auto)")
 	flag.Parse()
+
+	if *styleFlag != "" {
+		os.Setenv("AI_STYLE", *styleFlag)
+	}
 
 	if *cdpFlag != "" {
 		os.Setenv("CHROME_REMOTE_URL", *cdpFlag)
