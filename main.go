@@ -118,8 +118,13 @@ func main() {
 	}
 	systemPrompt += "Use chrome_cdp to control the browser."
 
+	ollamaModel := os.Getenv("OLLAMA_MODEL")
+	if ollamaModel == "" {
+		ollamaModel = "ministral-3:latest"
+	}
+
 	reqBody := ollama.ChatRequest{
-		Model: "ministral-3:latest",
+		Model: ollamaModel,
 		Messages: []ollama.Message{
 			{
 				Role:    "system",

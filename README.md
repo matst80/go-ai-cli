@@ -37,12 +37,29 @@ Alternatively, if you've already built the binary as `ai` and want to move it to
 sudo mv ai /usr/local/bin/
 ```
 
+## Configuration
+
+The tool can be configured using the following environment variables:
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `OLLAMA_URL` | The URL for the Ollama chat API. | `http://localhost:11434/api/chat` |
+| `OLLAMA_MODEL` | The model name to use. | `ministral-3:latest` |
+| `BRAVE_API_KEY` | API key for Brave Search. Required to enable the `web_search` tool. | (None) |
+| `CHROME_REMOTE_URL` | URL or port for an existing Chrome instance to control via CDP (e.g., `9222` or `localhost:9222`). Can also be set via the `--cdp` flag. | (None, starts managed instance) |
+
+Example:
+```bash
+export OLLAMA_URL="http://10.10.10.108:11434/api/chat"
+export BRAVE_API_KEY="your_api_key_here"
+```
 
 ## Usage
 
 ```bash
 ./ai "How do I list files by size in the current directory?"
 ```
+
 
 ### Persistent Browser (CDP)
 
