@@ -1,0 +1,26 @@
+{
+	"version": "0.2.0",
+	"configurations": [
+		{
+			"name": "Launch AI with Prompt",
+			"type": "go",
+			"request": "launch",
+			"mode": "auto",
+			"program": "${workspaceFolder}/main.go",
+			"args": [
+				"${input:prompt}"
+			],
+			"env": {
+				"OLLAMA_URL": "http://localhost:11434/api/chat"
+			}
+		}
+	],
+	"inputs": [
+		{
+			"id": "prompt",
+			"type": "promptString",
+			"description": "Enter your AI query (e.g. 'how to list files')",
+			"default": "how do I check my disk space?"
+		}
+	]
+}
