@@ -13,9 +13,30 @@ A simple CLI tool to interact with Ollama, specifically designed to help with te
 
 ## Installation
 
+### From Source (Local Build)
+
+To build the tool locally:
+
 ```bash
 go build -o ai main.go
 ```
+
+### Global Installation
+
+To install the tool globally so it's available as `go-ai-cli` from anywhere:
+
+```bash
+go install github.com/matst80/go-ai-cli@latest
+```
+
+Ensure your `GOPATH/bin` is in your `PATH`.
+
+Alternatively, if you've already built the binary as `ai` and want to move it to a global location (e.g., `/usr/local/bin`):
+
+```bash
+sudo mv ai /usr/local/bin/
+```
+
 
 ## Usage
 
