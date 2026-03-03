@@ -36,8 +36,7 @@ func RunSimpleSession(client *ollama.Client, req ollama.ChatRequest) (string, er
 
 		for msg := range workerCh {
 			if msg.Error != nil {
-				fmt.Printf("\n\n**Error:** %v\n", msg.Error)
-				break
+				return "", msg.Error
 			}
 			if msg.ReasoningContent != "" {
 				if assistantMsg.ReasoningContent == "" {
