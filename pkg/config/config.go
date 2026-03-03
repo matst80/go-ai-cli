@@ -2,15 +2,23 @@ package config
 
 import (
 	"encoding/json"
+	"flag"
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 )
 
 // Config represents the application configuration
 type Config struct {
-	SystemPrompt string   `json:"system_prompt,omitempty"`
-	Memory       []string `json:"memory,omitempty"`
+	SystemPrompt string                 `json:"system_prompt,omitempty"`
+	Memory       []string               `json:"memory,omitempty"`
+	Yolo         bool                   `json:"yolo,omitempty"`
+	Style        string                 `json:"style,omitempty"`
+	URL          string                 `json:"url,omitempty"`
+	Model        string                 `json:"model,omitempty"`
+	ModelOptions map[string]interface{} `json:"model_options,omitempty"`
+	CDP          string                 `json:"-"` // Not saved to file
 }
 
 // GetConfigPath returns the default configuration path (~/.ai-cli/config)
@@ -22,28 +30,123 @@ func GetConfigPath() (string, error) {
 	return filepath.Join(home, ".ai-cli", "config"), nil
 }
 
-// Load reads the configuration from the config file
+// Load reads the configuration from the config file, environment variables, and flags
 func Load() (*Config, error) {
+	cfg := &Config{}
 	path, err := GetConfigPath()
-	if err != nil {
-		return nil, err
+	if err == nil {
+		if data, err := os.ReadFile(path); err == nil {
+			_ = json.Unmarshal(data, cfg)
+		}
 	}
 
-	if _, err := os.Stat(path); os.IsNotExist(err) {
-		return &Config{}, nil
+	if cfg.SystemPrompt == "" {
+		cfg.SystemPrompt = fmt.Sprintf(`You are a terminal expert for %s.
+Please respond with markdown, to name a code block suffix it with :filename.html 
+
+To save a code block to a specific file path, use the format:
+%[2]slanguage:path/to/file.ext
+content
+%[2]s
+
+To suggest a shell command for the user to run, use:
+%[2]sbash
+command
+%[2]s
+(Bash blocks are also saved to temporary files).`, runtime.GOOS, "```")
 	}
 
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read config file: %w", err)
+	// Environment variable overrides
+	if envURL := os.Getenv("OLLAMA_URL"); envURL != "" {
+		cfg.URL = envURL
+	}
+	if envModel := os.Getenv("OLLAMA_MODEL"); envModel != "" {
+		cfg.Model = envModel
+	}
+	if envStyle := os.Getenv("AI_STYLE"); envStyle != "" {
+		cfg.Style = envStyle
+	}
+	if os.Getenv("AI_YOLO") == "true" {
+		cfg.Yolo = true
+	}
+	if envCDP := os.Getenv("CHROME_REMOTE_URL"); envCDP != "" {
+		cfg.CDP = envCDP
 	}
 
-	var cfg Config
-	if err := json.Unmarshal(data, &cfg); err != nil {
-		return nil, fmt.Errorf("failed to parse config file: %w", err)
+	// Flag definition and parsing
+	// Note: these will override file and env values if provided
+	var cdpFlag *string
+	var styleFlag *string
+	var yoloFlag *bool
+	var urlFlag *string
+	var modelFlag *string
+
+	if flag.Lookup("cdp") == nil {
+		cdpFlag = flag.String("cdp", cfg.CDP, "Remote CDP URL or port (e.g. 9222 or localhost:9222)")
+		styleFlag = flag.String("style", cfg.Style, "Output style (dark, light, or auto)")
+		yoloFlag = flag.Bool("yolo", cfg.Yolo, "Run all commands without confirmation")
+		urlFlag = flag.String("url", cfg.URL, "Ollama API URL")
+		modelFlag = flag.String("model", cfg.Model, "Ollama model name")
+	} else {
+		// Replace values if already defined (for tests or multiple calls)
+		cf := flag.Lookup("cdp")
+		_ = cf.Value.Set(cfg.CDP)
+		sf := flag.Lookup("style")
+		_ = sf.Value.Set(cfg.Style)
+		yf := flag.Lookup("yolo")
+		_ = yf.Value.Set(fmt.Sprintf("%v", cfg.Yolo))
+		uf := flag.Lookup("url")
+		_ = uf.Value.Set(cfg.URL)
+		mf := flag.Lookup("model")
+		_ = mf.Value.Set(cfg.Model)
+
+		// Create local pointers to match original logic
+		cdpStr := cf.Value.String()
+		cdpFlag = &cdpStr
+		styleStr := sf.Value.String()
+		styleFlag = &styleStr
+		yoloVal := yf.Value.(flag.Getter).Get().(bool)
+		yoloFlag = &yoloVal
+		urlStr := uf.Value.String()
+		urlFlag = &urlStr
+		modelStr := mf.Value.String()
+		modelFlag = &modelStr
 	}
 
-	return &cfg, nil
+	if !flag.Parsed() {
+		flag.Parse()
+	}
+
+	// Handle flag overrides
+	cfg.CDP = *cdpFlag
+	cfg.Style = *styleFlag
+	cfg.Yolo = *yoloFlag
+	cfg.URL = *urlFlag
+	cfg.Model = *modelFlag
+
+	// Hardcoded defaults
+	if cfg.URL == "" {
+		cfg.URL = "http://localhost:11434/api/chat"
+	}
+	if cfg.Model == "" {
+		cfg.Model = "ministral-3:latest"
+	}
+	if cfg.Style == "" {
+		cfg.Style = "auto"
+	}
+
+	// Sync back to Env for sub-packages
+	if cfg.Yolo {
+		os.Setenv("AI_YOLO", "true")
+	}
+	if cfg.Style != "" {
+		os.Setenv("AI_STYLE", cfg.Style)
+	}
+	if cfg.CDP != "" {
+		os.Setenv("CHROME_REMOTE_URL", cfg.CDP)
+	}
+
+	return cfg, nil
 }
 
 // Save writes the configuration to the config file

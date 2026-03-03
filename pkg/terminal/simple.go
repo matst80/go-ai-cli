@@ -20,6 +20,16 @@ func RunSimpleSession(client *ollama.Client, req ollama.ChatRequest) (string, er
 		var assistantMsg ollama.Message
 		assistantMsg.Role = "assistant"
 
+		sh := NewStreamHandler(
+			func(text string) { fmt.Print(text) },
+			func(filename, content string) {
+				fmt.Printf("\n💾 Saved: %s (%d bytes)\n", filename, len(content))
+			},
+			func(cmd string) {
+				preparedCmd = cmd
+			},
+		)
+
 		for msg := range workerCh {
 			if msg.Error != nil {
 				return "", msg.Error
@@ -33,25 +43,16 @@ func RunSimpleSession(client *ollama.Client, req ollama.ChatRequest) (string, er
 			}
 			if msg.Content != "" {
 				if assistantMsg.Content == "" && assistantMsg.ReasoningContent != "" {
-					fmt.Print("\n\n---\n\n")
+					fmt.Print("\n\n----- \n\n")
 				}
 				assistantMsg.Content += msg.Content
-				fmt.Print(msg.Content)
+				sh.Feed(msg.Content)
 			}
 			if len(msg.ToolCalls) > 0 {
 				assistantMsg.ToolCalls = append(assistantMsg.ToolCalls, msg.ToolCalls...)
-				for _, tc := range msg.ToolCalls {
-					if tc.Function.Name == "suggest_command" {
-						var args struct {
-							Command string `json:"command"`
-						}
-						if err := ollama.ParseToolArguments(tc.Function.Arguments, &args); err == nil {
-							preparedCmd = args.Command
-						}
-					}
-				}
 			}
 		}
+		sh.Flush()
 
 		// Add assistant message to history
 		req.Messages = append(req.Messages, assistantMsg)

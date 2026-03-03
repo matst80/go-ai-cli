@@ -10,6 +10,7 @@ A simple CLI tool to interact with Ollama, specifically designed to help with te
 - **Terminal Helper**: Pre-configured with a system message to help with shell commands.
 - **Web Search**: Integrates with Brave Search API to find information on the web.
 - **Browser (CDP)**: Controls Chrome via CDP to scrape sites, take screenshots, or navigate to pages in a persistent browser window.
+- **Create Files**: Directly create or overwrite files through AI instructions.
 
 ## Installation
 
@@ -54,16 +55,24 @@ The tool can be configured using the following environment variables:
 ### Configuration File
 
 The tool also supports a configuration file at `~/.ai-cli/config`. This file uses a simple JSON format:
-
-```json
-{
-  "system_prompt": "Optional custom system prompt",
-  "memory": [
-    "Information to remember for all sessions",
-    "e.g. Prefer using zsh instead of bash"
-  ]
-}
-```
+ 
+ ```json
+ {
+  "url": "http://localhost:11434/api/chat",
+  "model": "ministral-3:latest",
+  "yolo": false,
+  "style": "auto",
+   "system_prompt": "Optional custom system prompt",
+   "memory": [
+     "Information to remember for all sessions",
+     "e.g. Prefer using zsh instead of bash"
+   ],
+  "model_options": {
+    "temperature": 0,
+    "num_ctx": 8192
+  }
+ }
+ ```
 
 ### Persistent Memory and Custom Prompt
 

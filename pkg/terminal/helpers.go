@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"syscall"
@@ -35,31 +36,84 @@ func RunCommand(command string) (string, error) {
 	return string(output), err
 }
 
-// ExtractCommandFromMarkdown searches for bash code blocks in markdown text
+// CreateFile creates a file with the given name and content
+func CreateFile(filename, content string) error {
+	dir := filepath.Dir(filename)
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return err
+	}
+	return os.WriteFile(filename, []byte(content), 0644)
+}
+
+// AppendFile appends content to an existing file
+func AppendFile(filename, content string) error {
+	dir := filepath.Dir(filename)
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return err
+	}
+	f, err := os.OpenFile(filename, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	_, err = f.WriteString(content)
+	return err
+}
+
+// EditFile replaces a specific block of text in a file
+func EditFile(filename, search, replace string) error {
+	data, err := os.ReadFile(filename)
+	if err != nil {
+		return err
+	}
+	content := string(data)
+	if !strings.Contains(content, search) {
+		return fmt.Errorf("search string not found in file")
+	}
+	// For safety, we only replace the FIRST occurrence to avoid accidental mass changes
+	// if the search string is too generic.
+	newContent := strings.Replace(content, search, replace, 1)
+	return os.WriteFile(filename, []byte(newContent), 0644)
+}
+
+// ExtractCommandFromMarkdown searches for the LAST bash/sh code block in markdown text
 func ExtractCommandFromMarkdown(content string) string {
-	// Look for triple backtick blocks: ```bash, ```sh, or just ```
 	lines := strings.Split(content, "\n")
 	inBlock := false
 	var blockContent []string
+	var lastCommand string
+	var currentLang string
+
 	for _, line := range lines {
 		trimmed := strings.TrimSpace(line)
-		if strings.HasPrefix(trimmed, "```") {
+		if strings.HasPrefix(trimmed, "```") || strings.HasPrefix(trimmed, ":::") {
+			prefix := "```"
+			if strings.HasPrefix(trimmed, ":::") {
+				prefix = ":::"
+			}
+
 			if !inBlock {
 				inBlock = true
+				tag := strings.TrimSpace(strings.TrimPrefix(trimmed, prefix))
+				if idx := strings.Index(tag, ":"); idx != -1 {
+					currentLang = strings.TrimSpace(tag[:idx])
+				} else {
+					currentLang = tag
+				}
+				blockContent = nil
 				continue
 			} else {
 				// End of block
-				if len(blockContent) > 0 {
-					return strings.TrimSpace(strings.Join(blockContent, "\n"))
+				if (currentLang == "bash" || currentLang == "sh" || currentLang == "") && len(blockContent) > 0 {
+					lastCommand = strings.TrimSpace(strings.Join(blockContent, "\n"))
 				}
 				inBlock = false
 			}
-		}
-		if inBlock {
+		} else if inBlock {
 			blockContent = append(blockContent, line)
 		}
 	}
-	return ""
+	return lastCommand
 }
 
 // HandleSuggestedCommand presents a command for the user to run

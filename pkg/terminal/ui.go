@@ -95,6 +95,7 @@ type UI struct {
 	ctx           context.Context
 	cancel        context.CancelFunc
 	spinner       spinner.Model
+	savedFiles    map[string]string
 }
 
 // Msg types for Bubble Tea
@@ -107,6 +108,11 @@ type confirmationMsg struct {
 	Command string
 	Ch      chan bool
 }
+type fileSavedMsg struct {
+	Filename string
+	Content  string
+}
+type commandMsg string
 
 // NewUI creates a new UI model
 func NewUI(client *ollama.Client, req ollama.ChatRequest) *UI {
@@ -115,12 +121,13 @@ func NewUI(client *ollama.Client, req ollama.ChatRequest) *UI {
 	s.Spinner = spinner.Dot
 	s.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("205"))
 	return &UI{
-		client:    client,
-		request:   req,
-		chunkChan: make(chan tea.Msg),
-		ctx:       ctx,
-		cancel:    cancel,
-		spinner:   s,
+		client:     client,
+		request:    req,
+		chunkChan:  make(chan tea.Msg),
+		ctx:        ctx,
+		cancel:     cancel,
+		spinner:    s,
+		savedFiles: make(map[string]string),
 	}
 }
 
@@ -164,16 +171,6 @@ func (u *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return u, u.waitForNextChunk()
 	case toolCallMsg:
 		u.toolWasCalled = true
-		for _, tc := range msg {
-			if tc.Function.Name == "suggest_command" {
-				var args struct {
-					Command string `json:"command"`
-				}
-				if err := ollama.ParseToolArguments(tc.Function.Arguments, &args); err == nil && args.Command != "" {
-					u.preparedCmd = args.Command
-				}
-			}
-		}
 		return u, u.waitForNextChunk()
 	case confirmationMsg:
 		u.confirmCh = msg.Ch
@@ -182,6 +179,12 @@ func (u *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case errorMsg:
 		u.err = msg
 		return u, tea.Quit
+	case fileSavedMsg:
+		u.savedFiles[msg.Filename] = msg.Content
+		return u, u.waitForNextChunk()
+	case commandMsg:
+		u.preparedCmd = string(msg)
+		return u, u.waitForNextChunk()
 	case doneMsg:
 		u.done = true
 		return u, tea.Quit
@@ -239,6 +242,15 @@ func (u *UI) View() string {
 		}
 
 		rendered, _ := u.renderer.Render(displayContent)
+
+		// Post-process markers for saved files
+		for filename := range u.savedFiles {
+			marker := fmt.Sprintf("@@SAVED:%s@@", filename)
+			if strings.Contains(rendered, marker) {
+				rendered = strings.ReplaceAll(rendered, marker, u.renderFileSavedLines(filename))
+			}
+		}
+
 		out = rendered
 
 		if !u.done && u.confirmCh == nil {
@@ -286,6 +298,16 @@ func (u *UI) RunInteractiveSession() {
 		var assistantMsg ollama.Message
 		assistantMsg.Role = "assistant"
 
+		sh := NewStreamHandler(
+			func(text string) { u.chunkChan <- responseMsg(text) },
+			func(filename, content string) {
+				u.chunkChan <- fileSavedMsg{Filename: filename, Content: content}
+			},
+			func(cmd string) {
+				u.chunkChan <- commandMsg(cmd)
+			},
+		)
+
 		for msg := range workerCh {
 			if msg.Error != nil {
 				u.chunkChan <- errorMsg(msg.Error)
@@ -297,13 +319,14 @@ func (u *UI) RunInteractiveSession() {
 			}
 			if msg.Content != "" {
 				assistantMsg.Content += msg.Content
-				u.chunkChan <- responseMsg(msg.Content)
+				sh.Feed(msg.Content)
 			}
 			if len(msg.ToolCalls) > 0 {
 				assistantMsg.ToolCalls = append(assistantMsg.ToolCalls, msg.ToolCalls...)
 				u.chunkChan <- toolCallMsg(msg.ToolCalls)
 			}
 		}
+		sh.Flush()
 
 		// Add assistant message to history
 		u.request.Messages = append(u.request.Messages, assistantMsg)
@@ -432,6 +455,7 @@ func (u *UI) RunInteractiveSession() {
 					})
 					hasRunCommand = true
 				}
+
 			}
 		}
 
@@ -443,6 +467,42 @@ func (u *UI) RunInteractiveSession() {
 		// Append tool responses and loop for more chain-of-thought
 		u.request.Messages = append(u.request.Messages, toolResponses...)
 	}
+}
+
+func (u *UI) renderFileSavedLines(filename string) string {
+	content := u.savedFiles[filename]
+	size := len(content)
+
+	titleStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("82")).Bold(true)
+	pathStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("205")).Bold(true)
+	sizeStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
+
+	header := fmt.Sprintf("💾 %s %s %s",
+		titleStyle.Render("SAVED"),
+		pathStyle.Render(filename),
+		sizeStyle.Render(fmt.Sprintf("(%d bytes)", size)))
+
+	var preview string
+	lines := strings.Split(content, "\n")
+	if len(lines) > 0 {
+		maxLines := 8
+		if len(lines) > maxLines {
+			preview = strings.Join(lines[:maxLines], "\n") + "\n" + sizeStyle.Render("...")
+		} else {
+			preview = strings.Join(lines, "\n")
+		}
+		// Dim the preview
+		preview = lipgloss.NewStyle().Foreground(lipgloss.Color("245")).Render(preview)
+	}
+
+	box := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(lipgloss.Color("42")).
+		Padding(0, 1).
+		MarginBottom(1).
+		Render(header + "\n\n" + preview)
+
+	return "\n" + box + "\n"
 }
 
 // GetResult methods for after the program runs

@@ -4,7 +4,6 @@ import (
 	"flag"
 	"fmt"
 	"os"
-	"runtime"
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -15,21 +14,10 @@ import (
 )
 
 func main() {
-	cdpFlag := flag.String("cdp", "", "Remote CDP URL or port (e.g. 9222 or localhost:9222)")
-	styleFlag := flag.String("style", "", "Output style (dark, light, or auto)")
-	yoloFlag := flag.Bool("yolo", false, "Run all commands without confirmation")
-	flag.Parse()
-
-	if *yoloFlag {
-		os.Setenv("AI_YOLO", "true")
-	}
-
-	if *styleFlag != "" {
-		os.Setenv("AI_STYLE", *styleFlag)
-	}
-
-	if *cdpFlag != "" {
-		os.Setenv("CHROME_REMOTE_URL", *cdpFlag)
+	cfg, err := config.Load()
+	if err != nil {
+		fmt.Printf("Error loading config: %v\n", err)
+		os.Exit(1)
 	}
 
 	prompt, images, err := terminal.ProcessInputs(flag.Args())
@@ -39,39 +27,18 @@ func main() {
 	}
 
 	if prompt == "" && len(images) == 0 {
-		fmt.Println("Usage: ai [--cdp <url/port>] [--style <style>] [--yolo] <prompt> [files...]")
+		fmt.Println("Usage: ai [--cdp <url/port>] [--style <style>] [--yolo] [--url <url>] [--model <model>] <prompt> [files...]")
 		os.Exit(1)
 	}
-	ollamaURL := os.Getenv("OLLAMA_URL")
-	if ollamaURL == "" {
-		ollamaURL = "http://localhost:11434/api/chat"
-	}
 
-	client := ollama.NewClient(ollamaURL)
+	client := ollama.NewClient(cfg.URL)
 
 	tools := []ollama.Tool{
 		{
 			Type: "function",
 			Function: ollama.Function{
-				Name:        "suggest_command",
-				Description: "Suggest a command for the user to run later, prefer run if the user is not asking for a command",
-				Parameters: map[string]interface{}{
-					"type": "object",
-					"properties": map[string]interface{}{
-						"command": map[string]interface{}{
-							"type":        "string",
-							"description": "The command",
-						},
-					},
-					"required": []string{"command"},
-				},
-			},
-		},
-		{
-			Type: "function",
-			Function: ollama.Function{
 				Name:        "run",
-				Description: "Run a shell command",
+				Description: "Run a shell command, dont use it to write files",
 				Parameters: map[string]interface{}{
 					"type": "object",
 					"properties": map[string]interface{}{
@@ -145,30 +112,13 @@ func main() {
 		})
 	}
 
-	osName := runtime.GOOS
-	// if osName == "darwin" {
-	// 	osName = "macOS"
-	// }
-
-	cfg, _ := config.Load()
-
-	systemPrompt := fmt.Sprintf("You are a terminal expert for %s. Find a way to help the user using the available tools.", osName)
-	if cfg != nil {
-		if cfg.SystemPrompt != "" {
-			systemPrompt = cfg.SystemPrompt
-		}
-		if len(cfg.Memory) > 0 {
-			systemPrompt += "\n\nMemory:\n- " + strings.Join(cfg.Memory, "\n- ")
-		}
-	}
-
-	ollamaModel := os.Getenv("OLLAMA_MODEL")
-	if ollamaModel == "" {
-		ollamaModel = "ministral-3:latest"
+	systemPrompt := cfg.SystemPrompt
+	if len(cfg.Memory) > 0 {
+		systemPrompt += "\n\n" + strings.Join(cfg.Memory, "\n")
 	}
 
 	reqBody := ollama.ChatRequest{
-		Model: ollamaModel,
+		Model: cfg.Model,
 		Messages: []ollama.Message{
 			{
 				Role:    "system",
@@ -184,9 +134,15 @@ func main() {
 		Stream: true,
 		Think:  true,
 		Options: map[string]interface{}{
-			"temperature": 0,
-			"num_ctx":     8192, // Ensure enough room for long tool-calling sessions
+			"temperature": 0.5,
+			"num_ctx":     16384, // Ensure enough room for long tool-calling sessions
 		},
+	}
+
+	if cfg != nil && cfg.ModelOptions != nil {
+		for k, v := range cfg.ModelOptions {
+			reqBody.Options[k] = v
+		}
 	}
 
 	if !isatty.IsTerminal(os.Stdout.Fd()) {

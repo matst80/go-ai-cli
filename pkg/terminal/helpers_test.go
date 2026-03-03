@@ -32,6 +32,26 @@ func TestExtractCommandFromMarkdown(t *testing.T) {
 			content: "Just some text",
 			want:    "",
 		},
+		{
+			name:    "ignore html block",
+			content: "```html\n<div></div>\n```",
+			want:    "",
+		},
+		{
+			name:    "last block wins",
+			content: "```bash\nfirst\n```\n```bash\nsecond\n```",
+			want:    "second",
+		},
+		{
+			name:    "ignore mixed blocks",
+			content: "```bash\ncmd\n```\n```html\nnot a cmd\n```",
+			want:    "cmd",
+		},
+		{
+			name:    "block with filename",
+			content: "```bash:script.sh\necho hi\n```",
+			want:    "echo hi",
+		},
 	}
 
 	for _, tt := range tests {
