@@ -1,0 +1,547 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI-CLI | The Future of Terminal Workflow</title>
+    <meta name="description" content="Experience the next generation of terminal productivity with AI-driven task delegation.">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;600;800&family=Inter:wght@300;400;600&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --primary: #6366f1;
+            --primary-glow: rgba(99, 102, 241, 0.4);
+            --secondary: #06b6d4;
+            --accent: #f43f5e;
+            --bg: #030712;
+            --card-bg: rgba(17, 24, 39, 0.7);
+            --text-main: #f3f4f6;
+            --text-dim: #9ca3af;
+            --glass-border: rgba(255, 255, 255, 0.1);
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            -webkit-font-smoothing: antialiased;
+        }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: var(--bg);
+            color: var(--text-main);
+            min-height: 100vh;
+            overflow: hidden;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        /* Animated Mesh Background */
+        .mesh-bg {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: -1;
+            background: 
+                radial-gradient(at 0% 0%, rgba(99, 102, 241, 0.15) 0px, transparent 50%),
+                radial-gradient(at 100% 0%, rgba(6, 182, 212, 0.15) 0px, transparent 50%),
+                radial-gradient(at 100% 100%, rgba(244, 63, 94, 0.1) 0px, transparent 50%),
+                radial-gradient(at 0% 100%, rgba(139, 92, 246, 0.1) 0px, transparent 50%);
+            filter: blur(80px);
+            animation: meshMove 20s ease-in-out infinite alternate;
+        }
+
+        @keyframes meshMove {
+            0% { transform: scale(1) rotate(0deg); }
+            100% { transform: scale(1.1) rotate(3deg); }
+        }
+
+        .container {
+            position: relative;
+            width: 100vw;
+            height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        .slide-wrapper {
+            width: 100%;
+            max-width: 1000px;
+            padding: 2rem;
+            position: relative;
+        }
+
+        .slide {
+            display: none;
+            flex-direction: column;
+            align-items: center;
+            text-align: center;
+            opacity: 0;
+            transform: translateY(30px) scale(0.95);
+            transition: all 0.8s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+
+        .slide.active {
+            display: flex;
+            opacity: 1;
+            transform: translateY(0) scale(1);
+        }
+
+        h1 {
+            font-family: 'Outfit', sans-serif;
+            font-size: clamp(2.5rem, 8vw, 5rem);
+            font-weight: 800;
+            letter-spacing: -0.02em;
+            margin-bottom: 1.5rem;
+            background: linear-gradient(to bottom right, #fff 30%, var(--text-dim));
+            -webkit-background-clip: text;
+            background-clip: text;
+            -webkit-text-fill-color: transparent;
+            line-height: 1.1;
+        }
+
+        h2 {
+            font-family: 'Outfit', sans-serif;
+            font-size: clamp(2rem, 5vw, 3.5rem);
+            font-weight: 700;
+            margin-bottom: 1.5rem;
+            color: #fff;
+        }
+
+        .subtitle {
+            font-size: 1.25rem;
+            color: var(--text-dim);
+            max-width: 600px;
+            margin-bottom: 3rem;
+            line-height: 1.6;
+        }
+
+        /* Card Styles */
+        .features-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 1.5rem;
+            width: 100%;
+            perspective: 1000px;
+        }
+
+        .feature-card {
+            background: var(--card-bg);
+            backdrop-filter: blur(12px);
+            border: 1px solid var(--glass-border);
+            border-radius: 24px;
+            padding: 2rem;
+            text-align: left;
+            transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+            position: relative;
+            overflow: hidden;
+        }
+
+        .feature-card:hover {
+            transform: translateY(-8px) rotateX(2deg) rotateY(-2deg);
+            border-color: var(--primary);
+            box-shadow: 0 20px 40px -20px var(--primary-glow);
+        }
+
+        .feature-card::after {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: radial-gradient(circle at var(--x, 50%) var(--y, 50%), rgba(255,255,255,0.05) 0%, transparent 50%);
+            opacity: 0;
+            transition: opacity 0.3s;
+            pointer-events: none;
+        }
+
+        .feature-card:hover::after {
+            opacity: 1;
+        }
+
+        .icon-box {
+            width: 50px;
+            height: 50px;
+            border-radius: 12px;
+            background: linear-gradient(135deg, var(--primary), var(--secondary));
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin-bottom: 1.5rem;
+            font-size: 1.5rem;
+            box-shadow: 0 8px 16px -4px var(--primary-glow);
+        }
+
+        .feature-card h3 {
+            font-family: 'Outfit', sans-serif;
+            font-size: 1.5rem;
+            margin-bottom: 0.75rem;
+            color: #fff;
+        }
+
+        .feature-card p {
+            font-size: 1rem;
+            color: var(--text-dim);
+            line-height: 1.5;
+        }
+
+        /* Terminal Style */
+        .terminal-container {
+            width: 100%;
+            max-width: 700px;
+            background: #000;
+            border-radius: 12px;
+            border: 1px solid var(--glass-border);
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+            overflow: hidden;
+            text-align: left;
+        }
+
+        .terminal-header {
+            background: #111;
+            padding: 12px 16px;
+            display: flex;
+            gap: 8px;
+            border-bottom: 1px solid var(--glass-border);
+        }
+
+        .dot { width: 12px; height: 12px; border-radius: 50%; }
+        .red { background: #ff5f56; }
+        .yellow { background: #ffbd2e; }
+        .green { background: #27c93f; }
+
+        .terminal-body {
+            padding: 24px;
+            font-family: 'Fira Code', 'Courier New', monospace;
+            font-size: 1.1rem;
+            color: #d1d5db;
+        }
+
+        .prompt { color: var(--secondary); margin-right: 12px; }
+        .command-text { color: #fff; }
+        .cursor {
+            display: inline-block;
+            width: 8px;
+            height: 18px;
+            background: var(--primary);
+            margin-left: 4px;
+            animation: blink 1s infinite;
+        }
+
+        @keyframes blink {
+            0%, 50% { opacity: 1; }
+            51%, 100% { opacity: 0; }
+        }
+
+        .pagination {
+            position: fixed;
+            right: 2rem;
+            top: 50%;
+            transform: translateY(-50%);
+            display: flex;
+            flex-direction: column;
+            gap: 1.5rem;
+            z-index: 100;
+        }
+
+        .progress-dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            background: var(--text-dim);
+            opacity: 0.2;
+            cursor: pointer;
+            transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+            border: 1px solid transparent;
+        }
+
+        .progress-dot:hover {
+            opacity: 0.5;
+            background: #fff;
+        }
+
+        .progress-dot.active {
+            opacity: 1;
+            background: var(--primary);
+            transform: scale(1.5);
+            box-shadow: 0 0 15px var(--primary-glow);
+            border-color: rgba(255, 255, 255, 0.2);
+        }
+
+        /* Staggered entry for active slide children */
+        .slide.active > * {
+            animation: slideUp 0.6s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+            opacity: 0;
+        }
+
+        .slide.active *:nth-child(1) { animation-delay: 0.1s; }
+        .slide.active *:nth-child(2) { animation-delay: 0.2s; }
+        .slide.active *:nth-child(3) { animation-delay: 0.3s; }
+        .slide.active *:nth-child(4) { animation-delay: 0.4s; }
+
+        @keyframes slideUp {
+            from { opacity: 0; transform: translateY(20px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        /* Floating particles */
+        .particle {
+            position: absolute;
+            background: #fff;
+            border-radius: 50%;
+            pointer-events: none;
+            opacity: 0.1;
+        }
+
+        .cta-button {
+            background: var(--primary);
+            color: white;
+            padding: 1rem 2.5rem;
+            border-radius: 12px;
+            font-family: 'Outfit', sans-serif;
+            font-weight: 600;
+            font-size: 1.1rem;
+            border: none;
+            cursor: pointer;
+            transition: all 0.3s;
+            box-shadow: 0 10px 20px -10px var(--primary-glow);
+        }
+
+        .cta-button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 15px 30px -10px var(--primary-glow);
+            filter: brightness(1.1);
+        }
+    </style>
+</head>
+<body>
+    <div class="mesh-bg"></div>
+    <div id="particles"></div>
+
+    <div class="container">
+        <div class="slide-wrapper">
+            <!-- Slide 1: Hero -->
+            <div class="slide active" id="slide1">
+                <h1>Seamless AI<br><span style="background: linear-gradient(135deg, var(--primary), var(--secondary)); -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;">Intelligence</span></h1>
+                <p class="subtitle">The professional terminal assistant that bridges the gap between complex tasks and natural intent.</p>
+                <button class="cta-button" onclick="nextSlide()">Get Started <span style="margin-left: 8px">→</span></button>
+            </div>
+
+            <!-- Slide 2: Capabilities -->
+            <div class="slide" id="slide2">
+                <h2>Force Multiplier</h2>
+                <p class="subtitle">Key capabilities designed to accelerate your development workflow without leaving the CLI.</p>
+                <div class="features-grid">
+                    <div class="feature-card">
+                        <div class="icon-box">⚡</div>
+                        <h3>Smart Shell</h3>
+                        <p>Execute complex shell chains using intuitive natural language requests.</p>
+                    </div>
+                    <div class="feature-card">
+                        <div class="icon-box">🌐</div>
+                        <h3>Deep Search</h3>
+                        <p>Real-time internet access to fetch docs, solve errors, and research libraries.</p>
+                    </div>
+                    <div class="feature-card">
+                        <div class="icon-box">📁</div>
+                        <h3>File Ops</h3>
+                        <p>Intelligent file manipulation, from quick edits to skeleton generations.</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Slide 3: Workflow -->
+            <div class="slide" id="slide3">
+                <h2>Native Integration</h2>
+                <p class="subtitle">Built to feel like a natural extension of your existing terminal environment, not a separate layer.</p>
+                <div class="features-grid">
+                    <div class="feature-card">
+                        <div class="icon-box">🤖</div>
+                        <h3>Agentic AI</h3>
+                        <p>Autonomous task planning and execution with safety guards.</p>
+                    </div>
+                    <div class="feature-card">
+                        <div class="icon-box">💾</div>
+                        <h3>Persistence</h3>
+                        <p>Stateful memory that remembers your preferences across every session.</p>
+                    </div>
+                    <div class="feature-card">
+                        <div class="icon-box">🔒</div>
+                        <h3>Local First</h3>
+                        <p>Designed with privacy in mind, giving you control over data and tokens.</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Slide 4: Install -->
+            <div class="slide" id="slide4">
+                <h2>Ready to Begin?</h2>
+                <p class="subtitle">Join thousands of developers enhancing their terminal experience with AI-CLI.</p>
+                <div class="terminal-container">
+                    <div class="terminal-header">
+                        <div class="dot red"></div>
+                        <div class="dot yellow"></div>
+                        <div class="dot green"></div>
+                    </div>
+                    <div class="terminal-body">
+                        <div><span class="prompt">➜</span> <span class="command-text">go install github.com/matst80/go-ai-cli@latest</span><span class="cursor"></span></div>
+                    </div>
+                </div>
+                <div style="margin-top: 3rem">
+                    <button class="cta-button" onclick="resetToFirst()">Restart Journey</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Simple Side Pagination -->
+    <div class="pagination" id="progressDots">
+        <!-- Dots generated by JS -->
+    </div>
+
+    <script>
+        let currentSlide = 1;
+        let isTransitioning = false;
+        const slides = document.querySelectorAll('.slide');
+        const totalSlides = slides.length;
+        const progressDots = document.getElementById('progressDots');
+
+        // Initialize progress dots
+        function initDots() {
+            for (let i = 1; i <= totalSlides; i++) {
+                const dot = document.createElement('div');
+                dot.className = `progress-dot ${i === 1 ? 'active' : ''}`;
+                dot.onclick = () => goToSlide(i);
+                progressDots.appendChild(dot);
+            }
+        }
+
+        function updateDots() {
+            document.querySelectorAll('.progress-dot').forEach((dot, idx) => {
+                dot.classList.toggle('active', idx + 1 === currentSlide);
+            });
+        }
+
+        function showSlide(n) {
+            if (isTransitioning) return;
+            isTransitioning = true;
+
+            slides.forEach(slide => slide.classList.remove('active'));
+            slides[n - 1].classList.add('active');
+            currentSlide = n;
+            updateDots();
+
+            setTimeout(() => {
+                isTransitioning = false;
+            }, 800); // Wait for transition animation
+        }
+
+        function nextSlide() {
+            if (currentSlide < totalSlides) {
+                showSlide(currentSlide + 1);
+            }
+        }
+
+        function prevSlide() {
+            if (currentSlide > 1) {
+                showSlide(currentSlide - 1);
+            }
+        }
+
+        function goToSlide(n) {
+            showSlide(n);
+        }
+
+        function resetToFirst() {
+            showSlide(1);
+        }
+
+        // Mouse move effect for cards
+        document.addEventListener('mousemove', (e) => {
+            const cards = document.querySelectorAll('.feature-card');
+            cards.forEach(card => {
+                const rect = card.getBoundingClientRect();
+                const x = e.clientX - rect.left;
+                const y = e.clientY - rect.top;
+                card.style.setProperty('--x', `${x}px`);
+                card.style.setProperty('--y', `${y}px`);
+            });
+        });
+
+        // Scroll Navigation
+        let scrollTimeout;
+        document.addEventListener('wheel', (e) => {
+            if (isTransitioning) return;
+            
+            if (Math.abs(e.deltaY) > 30) { // Threshold to prevent accidental scrolls
+                if (e.deltaY > 0) {
+                    nextSlide();
+                } else {
+                    prevSlide();
+                }
+            }
+        }, { passive: true });
+
+        // Touch Navigation for Mobile
+        let touchStartY = 0;
+        document.addEventListener('touchstart', (e) => {
+            touchStartY = e.touches[0].clientY;
+        }, { passive: true });
+
+        document.addEventListener('touchend', (e) => {
+            const touchEndY = e.changedTouches[0].clientY;
+            const diff = touchStartY - touchEndY;
+            
+            if (Math.abs(diff) > 50) {
+                if (diff > 0) nextSlide();
+                else prevSlide();
+            }
+        }, { passive: true });
+
+        // Keyboard navigation
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'ArrowRight' || e.key === ' ' || e.key === 'ArrowDown') {
+                nextSlide();
+            } else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') {
+                prevSlide();
+            }
+        });
+
+        // Background Particles
+        function createParticles() {
+            const container = document.getElementById('particles');
+            for (let i = 0; i < 50; i++) {
+                const particle = document.createElement('div');
+                particle.className = 'particle';
+                const size = Math.random() * 4 + 1;
+                particle.style.width = `${size}px`;
+                particle.style.height = `${size}px`;
+                particle.style.top = `${Math.random() * 100}%`;
+                particle.style.left = `${Math.random() * 100}%`;
+                particle.style.animation = `float ${Math.random() * 10 + 10}s linear infinite`;
+                container.appendChild(particle);
+            }
+        }
+
+        // Add float animation keyframe
+        const style = document.createElement('style');
+        style.innerHTML = `
+            @keyframes float {
+                from { transform: translateY(0) translateX(0); }
+                to { transform: translateY(-100vh) translateX(20px); }
+            }
+        `;
+        document.head.appendChild(style);
+
+        initDots();
+        createParticles();
+    </script>
+</body>
+</html>

@@ -1,6 +1,6 @@
 # Go AI CLI
 
-A simple CLI tool to interact with Ollama, specifically designed to help with terminal commands.
+This is essentially a smart terminal assistant that bridges AI capabilities with your workflow, letting you delegate tasks like running commands, browsing the web, managing files, and even remembering preferences across sessions. 
 
 ## Features
 

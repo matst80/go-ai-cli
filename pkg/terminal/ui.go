@@ -390,10 +390,12 @@ func (u *UI) RunInteractiveSession() {
 				var args struct {
 					Query   string `json:"query"`
 					Country string `json:"country"`
+					Count   int    `json:"count"`
+					Offset  int    `json:"offset"`
 				}
 				if err := ollama.ParseToolArguments(tc.Function.Arguments, &args); err == nil {
 					u.chunkChan <- responseMsg(fmt.Sprintf("\n**Searching:** `%s`\n", args.Query))
-					output, err := BraveSearch(args.Query, args.Country)
+					output, err := BraveSearch(args.Query, args.Country, args.Count, args.Offset)
 					if err != nil {
 						output = fmt.Sprintf("Error: %v", err)
 					}

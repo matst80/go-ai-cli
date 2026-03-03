@@ -118,6 +118,14 @@ func main() {
 							"type":        "string",
 							"description": "The country code for the search (e.g. 'us', 'gb', 'se', 'de'). Optional.",
 						},
+						"count": map[string]interface{}{
+							"type":        "integer",
+							"description": "The number of results to return (max 20). Optional.",
+						},
+						"offset": map[string]interface{}{
+							"type":        "integer",
+							"description": "The zero-based offset for pagination. Optional.",
+						},
 					},
 					"required": []string{"query"},
 				},

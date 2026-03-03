@@ -6,8 +6,10 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
+	"strconv"
 	"strings"
 	"time"
 
@@ -15,17 +17,32 @@ import (
 )
 
 // BraveSearch performs a web search using the Brave Search API
-func BraveSearch(query, country string) (string, error) {
+func BraveSearch(query, country string, count, offset int) (string, error) {
 	apiKey := os.Getenv("BRAVE_API_KEY")
 	if apiKey == "" {
 		return "", fmt.Errorf("BRAVE_API_KEY environment variable is not set")
 	}
 
-	url := fmt.Sprintf("https://api.search.brave.com/res/v1/web/search?q=%s&result_filter=web&count=10", strings.ReplaceAll(query, " ", "+"))
-	if country != "" {
-		url += fmt.Sprintf("&country=%s", country)
+	if count <= 0 {
+		count = 10
 	}
-	req, err := http.NewRequest("GET", url, nil)
+
+	u, err := url.Parse("https://api.search.brave.com/res/v1/web/search")
+	if err != nil {
+		return "", err
+	}
+
+	q := u.Query()
+	q.Set("q", query)
+	q.Set("result_filter", "web")
+	q.Set("count", strconv.Itoa(count))
+	q.Set("offset", strconv.Itoa(offset))
+	if country != "" {
+		q.Set("country", country)
+	}
+	u.RawQuery = q.Encode()
+
+	req, err := http.NewRequest("GET", u.String(), nil)
 	if err != nil {
 		return "", err
 	}
