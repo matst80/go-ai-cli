@@ -20,6 +20,7 @@ type Config struct {
 	ModelOptions map[string]interface{} `json:"model_options,omitempty"`
 	Thinking     bool                   `json:"thinking,omitempty"`
 	CDP          string                 `json:"-"` // Not saved to file
+	NumCtx       int                    `json:"num_ctx,omitempty"`
 }
 
 // GetConfigPath returns the default configuration path (~/.ai-cli/config)
@@ -139,6 +140,21 @@ content
 	}
 	if cfg.Style == "" {
 		cfg.Style = "auto"
+	}
+
+	// Default num_ctx if not specified
+	if cfg.NumCtx == 0 {
+		if val, ok := cfg.ModelOptions["num_ctx"].(float64); ok {
+			cfg.NumCtx = int(val)
+		} else {
+			cfg.NumCtx = 16384 // Default as set in main.go
+		}
+	} else {
+		// Ensure ModelOptions reflects NumCtx if NumCtx is set directly
+		if cfg.ModelOptions == nil {
+			cfg.ModelOptions = make(map[string]interface{})
+		}
+		cfg.ModelOptions["num_ctx"] = cfg.NumCtx
 	}
 
 	// Sync back to Env for sub-packages

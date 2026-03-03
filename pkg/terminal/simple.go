@@ -14,6 +14,11 @@ import (
 func RunSimpleSession(client *ollama.Client, req ollama.ChatRequest) (string, error) {
 	var preparedCmd string
 	for {
+		summarized, _ := ManageContext(context.Background(), client, &req)
+		if summarized {
+			fmt.Println("\n> Summarizing context...")
+		}
+
 		workerCh := make(chan ollama.StreamResponse)
 		go client.StreamWorker(context.Background(), req, workerCh)
 

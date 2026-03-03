@@ -156,7 +156,7 @@ func main() {
 		Think:  cfg.Thinking,
 		Options: map[string]interface{}{
 			"temperature": 0.5,
-			"num_ctx":     16384, // Ensure enough room for long tool-calling sessions
+			"num_ctx":     cfg.NumCtx,
 		},
 	}
 
