@@ -40,11 +40,12 @@ type ToolCall struct {
 
 // ChatRequest represents the request body for Ollama chat API
 type ChatRequest struct {
-	Model    string    `json:"model"`
-	Messages []Message `json:"messages"`
-	Stream   bool      `json:"stream"`
-	Think    bool      `json:"think,omitempty"`
-	Tools    []Tool    `json:"tools,omitempty"`
+	Model    string                 `json:"model"`
+	Messages []Message              `json:"messages"`
+	Stream   bool                   `json:"stream"`
+	Think    bool                   `json:"think,omitempty"`
+	Tools    []Tool                 `json:"tools,omitempty"`
+	Options  map[string]interface{} `json:"options,omitempty"`
 }
 
 // ChatResponse represents the response chunk

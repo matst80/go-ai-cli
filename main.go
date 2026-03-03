@@ -52,7 +52,7 @@ func main() {
 			Type: "function",
 			Function: ollama.Function{
 				Name:        "add_command",
-				Description: "Add a terminal command. Use this for the final command you recommend, explore first",
+				Description: "Suggest a terminal command",
 				Parameters: map[string]interface{}{
 					"type": "object",
 					"properties": map[string]interface{}{
@@ -69,7 +69,7 @@ func main() {
 			Type: "function",
 			Function: ollama.Function{
 				Name:        "run_command",
-				Description: "Run a shell command. Use this to explore or run tests before giving a final answer.",
+				Description: "Run a shell command",
 				Parameters: map[string]interface{}{
 					"type": "object",
 					"properties": map[string]interface{}{
@@ -111,7 +111,7 @@ func main() {
 			Type: "function",
 			Function: ollama.Function{
 				Name:        "web_search",
-				Description: "Search the web.",
+				Description: "Search the internet.",
 				Parameters: map[string]interface{}{
 					"type": "object",
 					"properties": map[string]interface{}{
@@ -126,11 +126,12 @@ func main() {
 		})
 	}
 
-	systemPrompt := fmt.Sprintf("You are a terminal expert on %s. Use markdown for code blocks and formatting. Use tools if needed. ", runtime.GOOS)
-	// if os.Getenv("BRAVE_API_KEY") != "" {
-	// 	systemPrompt += "Use web_search to find information on the web. "
+	osName := runtime.GOOS
+	// if osName == "darwin" {
+	// 	osName = "macOS"
 	// }
-	// systemPrompt += "Use chrome_cdp to control the browser."
+
+	systemPrompt := fmt.Sprintf("You are a terminal expert for %s. find a way to help the user", osName)
 
 	ollamaModel := os.Getenv("OLLAMA_MODEL")
 	if ollamaModel == "" {
@@ -153,6 +154,10 @@ func main() {
 		Tools:  tools,
 		Stream: true,
 		Think:  true,
+		Options: map[string]interface{}{
+			"temperature": 0,
+			"num_ctx":     8192, // Ensure enough room for long tool-calling sessions
+		},
 	}
 
 	if !isatty.IsTerminal(os.Stdout.Fd()) {

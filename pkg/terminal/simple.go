@@ -1,6 +1,7 @@
 package terminal
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"strings"
@@ -13,7 +14,7 @@ func RunSimpleSession(client *ollama.Client, req ollama.ChatRequest) (string, er
 	var preparedCmd string
 	for {
 		workerCh := make(chan ollama.StreamResponse)
-		go client.StreamWorker(req, workerCh)
+		go client.StreamWorker(context.Background(), req, workerCh)
 
 		var assistantMsg ollama.Message
 		assistantMsg.Role = "assistant"

@@ -1,6 +1,7 @@
 package terminal
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"strings"
@@ -42,6 +43,8 @@ type UI struct {
 	chunkChan     chan tea.Msg
 	confirmCh     chan bool
 	confirmCmd    string
+	ctx           context.Context
+	cancel        context.CancelFunc
 }
 
 // Msg types for Bubble Tea
@@ -57,10 +60,13 @@ type confirmationMsg struct {
 
 // NewUI creates a new UI model
 func NewUI(client *ollama.Client, req ollama.ChatRequest) *UI {
+	ctx, cancel := context.WithCancel(context.Background())
 	return &UI{
 		client:    client,
 		request:   req,
 		chunkChan: make(chan tea.Msg),
+		ctx:       ctx,
+		cancel:    cancel,
 	}
 }
 
@@ -72,6 +78,10 @@ func (u *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
 		if msg.Type == tea.KeyCtrlC {
+			return u, tea.Quit
+		}
+		if msg.Type == tea.KeyEsc {
+			u.cancel()
 			return u, tea.Quit
 		}
 		if u.confirmCh != nil {
@@ -194,8 +204,15 @@ func (u *UI) waitForNextChunk() tea.Cmd {
 // RunInteractiveSession handles tool execution loops for a TTY
 func (u *UI) RunInteractiveSession() {
 	for {
+		select {
+		case <-u.ctx.Done():
+			u.chunkChan <- doneMsg(true)
+			return
+		default:
+		}
+
 		workerCh := make(chan ollama.StreamResponse)
-		go u.client.StreamWorker(u.request, workerCh)
+		go u.client.StreamWorker(u.ctx, u.request, workerCh)
 
 		var assistantMsg ollama.Message
 		assistantMsg.Role = "assistant"
@@ -237,7 +254,11 @@ func (u *UI) RunInteractiveSession() {
 					if !shouldRun {
 						ch := make(chan bool)
 						u.chunkChan <- confirmationMsg{Command: args.Command, Ch: ch}
-						shouldRun = <-ch
+						select {
+						case shouldRun = <-ch:
+						case <-u.ctx.Done():
+							return
+						}
 						if !shouldRun {
 							u.chunkChan <- responseMsg(fmt.Sprintf("\n_Skip: %s_\n", args.Command))
 						}
@@ -250,6 +271,8 @@ func (u *UI) RunInteractiveSession() {
 						if output != "" {
 							u.chunkChan <- responseMsg(fmt.Sprintf("```\n%s\n```\n", strings.TrimSpace(output)))
 						}
+					} else {
+						output = "Cancelled by user"
 					}
 
 					toolResponses = append(toolResponses, ollama.Message{

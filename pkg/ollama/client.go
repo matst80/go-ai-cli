@@ -3,6 +3,7 @@ package ollama
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -41,7 +42,8 @@ type StreamResponse struct {
 }
 
 // StreamWorker handles the streaming request to Ollama
-func (c *Client) StreamWorker(req ChatRequest, ch chan StreamResponse) {
+func (c *Client) StreamWorker(ctx context.Context, req ChatRequest, ch chan StreamResponse) {
+	defer close(ch)
 	LogDebug("--- NEW REQUEST ---")
 	jsonData, err := json.Marshal(req)
 	if err != nil {
@@ -51,8 +53,20 @@ func (c *Client) StreamWorker(req ChatRequest, ch chan StreamResponse) {
 	}
 	LogDebug("Payload (%d bytes): %s", len(jsonData), string(jsonData))
 
-	resp, err := http.Post(c.URL, "application/json", bytes.NewBuffer(jsonData))
+	httpReq, err := http.NewRequestWithContext(ctx, "POST", c.URL, bytes.NewBuffer(jsonData))
 	if err != nil {
+		LogDebug("Request creation error: %v", err)
+		ch <- StreamResponse{Error: err}
+		return
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+
+	resp, err := http.DefaultClient.Do(httpReq)
+	if err != nil {
+		if ctx.Err() != nil {
+			LogDebug("Request cancelled")
+			return
+		}
 		LogDebug("Post error: %v", err)
 		ch <- StreamResponse{Error: err}
 		return
@@ -75,30 +89,50 @@ func (c *Client) StreamWorker(req ChatRequest, ch chan StreamResponse) {
 
 	reader := bufio.NewReader(resp.Body)
 	for {
+		select {
+		case <-ctx.Done():
+			LogDebug("Context cancelled during read")
+			return
+		default:
+		}
+
 		line, err := reader.ReadBytes('\n')
 		if err != nil {
 			if err == io.EOF {
 				break
+			}
+			if ctx.Err() != nil {
+				return
 			}
 			LogDebug("Read error: %v", err)
 			ch <- StreamResponse{Error: err}
 			return
 		}
 
-		LogDebug("Recv: %s", string(line))
+		cleanLine := bytes.TrimSpace(line)
+		if len(cleanLine) == 0 {
+			continue
+		}
+
+		LogDebug("got line: %s", string(cleanLine))
 		var chatResp ChatResponse
-		if err := json.Unmarshal(line, &chatResp); err != nil {
-			LogDebug("Unmarshal error: %v, line: %s", err, string(line))
+		if err := json.Unmarshal(cleanLine, &chatResp); err != nil {
+			LogDebug("Unmarshal error: %v, line: %s", err, string(cleanLine))
 			continue
 		}
 
 		if chatResp.Error != "" {
 			LogDebug("Ollama error field: %s", chatResp.Error)
 			ch <- StreamResponse{Error: fmt.Errorf("ollama error: %s", chatResp.Error)}
-			return
+			continue
 		}
 
 		if len(chatResp.Message.ToolCalls) > 0 {
+			for i := range chatResp.Message.ToolCalls {
+				if chatResp.Message.ToolCalls[i].Type == "" {
+					chatResp.Message.ToolCalls[i].Type = "function"
+				}
+			}
 			ch <- StreamResponse{ToolCalls: chatResp.Message.ToolCalls}
 		}
 
@@ -115,5 +149,4 @@ func (c *Client) StreamWorker(req ChatRequest, ch chan StreamResponse) {
 		}
 	}
 	ch <- StreamResponse{Done: true}
-	close(ch)
 }

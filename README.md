@@ -6,7 +6,7 @@ A simple CLI tool to interact with Ollama, specifically designed to help with te
 
 - **Streaming Responses**: Get immediate feedback as the AI generates text.
 - **Markdown Formatting**: Renders markdown (code blocks, bold, etc.) beautifully in your terminal using [Glamour](https://github.com/charmbracelet/glamour).
-- **Auto-suggest Commands**: On macOS, the AI can suggest a command that will be automatically typed onto your terminal's next line after the tool exits.
+- **Auto-suggest Commands**: On Unix systems (Linux, macOS), the AI can suggest a command that will be automatically typed onto your terminal's next line after the tool exits.
 - **Terminal Helper**: Pre-configured with a system message to help with shell commands.
 - **Web Search**: Integrates with Brave Search API to find information on the web.
 - **Browser (CDP)**: Controls Chrome via CDP to scrape sites, take screenshots, or navigate to pages in a persistent browser window.

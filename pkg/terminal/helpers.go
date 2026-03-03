@@ -10,7 +10,9 @@ import (
 	"os/exec"
 	"runtime"
 	"strings"
+	"syscall"
 	"time"
+	"unsafe"
 
 	"github.com/mattn/go-isatty"
 )
@@ -57,19 +59,14 @@ func ExtractCommandFromMarkdown(content string) string {
 
 // HandleSuggestedCommand presents a command for the user to run
 func HandleSuggestedCommand(cmd string) {
-	if runtime.GOOS == "darwin" && isatty.IsTerminal(os.Stdout.Fd()) {
-		// Small delay to let the shell prompt reappear
+	if isatty.IsTerminal(os.Stdin.Fd()) && runtime.GOOS != "windows" {
+		// Small delay to let the shell prompt reappear if any
 		time.Sleep(150 * time.Millisecond)
-		// Escape backslashes and double quotes for AppleScript
-		escaped := strings.ReplaceAll(cmd, "\\", "\\\\")
-		escaped = strings.ReplaceAll(escaped, "\"", "\\\"")
-		script := fmt.Sprintf(`tell application "System Events" to keystroke "%s"`, escaped)
-		if err := exec.Command("osascript", "-e", script).Run(); err != nil {
-			fmt.Printf("\nSuggested command: %s\n, err:%v", cmd, err)
+		for _, c := range []byte(cmd) {
+			_, _, _ = syscall.Syscall(syscall.SYS_IOCTL, os.Stdin.Fd(), syscall.TIOCSTI, uintptr(unsafe.Pointer(&c)))
 		}
-	} else {
-		fmt.Printf("\nSuggested command: %s\n", cmd)
 	}
+	fmt.Printf("\nSuggested command: %s\n", cmd)
 }
 
 // ProcessInputs handles piped stdin and file arguments, returning a prompt, images, and any error

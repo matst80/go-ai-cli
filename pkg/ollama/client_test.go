@@ -1,10 +1,12 @@
 package ollama
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 )
 
 func TestClient_StreamWorker(t *testing.T) {
@@ -33,7 +35,7 @@ func TestClient_StreamWorker(t *testing.T) {
 	}
 
 	ch := make(chan StreamResponse)
-	go client.StreamWorker(reqBody, ch)
+	go client.StreamWorker(context.Background(), reqBody, ch)
 
 	var content string
 	for resp := range ch {
@@ -49,6 +51,29 @@ func TestClient_StreamWorker(t *testing.T) {
 	expected := "Hello there!"
 	if content != expected {
 		t.Errorf("got %q, want %q", content, expected)
+	}
+}
+
+func TestClient_StreamWorker_Cancellation(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/x-ndjson")
+		// Delay to allow cancellation to happen
+		time.Sleep(100 * time.Millisecond)
+		json.NewEncoder(w).Encode(ChatResponse{Message: Message{Content: "unseen"}})
+	}))
+	defer server.Close()
+
+	client := NewClient(server.URL)
+	ctx, cancel := context.WithCancel(context.Background())
+	ch := make(chan StreamResponse)
+
+	go client.StreamWorker(ctx, ChatRequest{}, ch)
+	cancel()
+
+	for resp := range ch {
+		if resp.Content == "unseen" {
+			t.Error("received content after cancellation")
+		}
 	}
 }
 
@@ -92,5 +117,28 @@ func TestParseToolArguments(t *testing.T) {
 				t.Errorf("ParseToolArguments() got = %v, want %v", got.Command, tt.want)
 			}
 		})
+	}
+}
+func TestChatRequest_Marshal(t *testing.T) {
+	req := ChatRequest{
+		Model: "test",
+		Options: map[string]interface{}{
+			"repeat_penalty": 1.5,
+		},
+	}
+	data, err := json.Marshal(req)
+	if err != nil {
+		t.Fatalf("failed to marshal: %v", err)
+	}
+	var decoded map[string]interface{}
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		t.Fatalf("failed to unmarshal: %v", err)
+	}
+	options, ok := decoded["options"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("options not found or not a map")
+	}
+	if options["repeat_penalty"] != 1.5 {
+		t.Errorf("got repeat_penalty %v, want 1.5", options["repeat_penalty"])
 	}
 }
