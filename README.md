@@ -111,6 +111,24 @@ Then use the `--cdp` flag:
 
 If not specified, the tool will attempt to start its own managed Chrome instance.
 
+### Multimodal and File Support
+
+The CLI supports multimodal models and can process local files.
+
+#### Pipe an image or file:
+```bash
+cat image.png | ./ai "describe this image"
+cat main.go | ./ai "suggest improvements"
+```
+
+#### Append files as arguments:
+```bash
+./ai "explain this code" pkg/ollama/client.go
+./ai "compare these images" car1.jpg car2.jpg
+```
+
+The tool automatically detects image files and sends them to Ollama. Other files are appended to the prompt as text.
+
 ## Testing
 
 ```bash

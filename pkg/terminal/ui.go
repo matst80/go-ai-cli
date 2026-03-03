@@ -239,13 +239,13 @@ func (u *UI) RunInteractiveSession() {
 						u.chunkChan <- confirmationMsg{Command: args.Command, Ch: ch}
 						shouldRun = <-ch
 						if !shouldRun {
-							u.chunkChan <- responseMsg("\n" + skipStyle.Render(fmt.Sprintf("Skip: %s", args.Command)) + "\n")
+							u.chunkChan <- responseMsg(fmt.Sprintf("\n_Skip: %s_\n", args.Command))
 						}
 					}
 
 					var output string
 					if shouldRun {
-						u.chunkChan <- responseMsg("\n" + headerStyle.Render("Running:") + infoStyle.Render(args.Command) + "\n")
+						u.chunkChan <- responseMsg(fmt.Sprintf("\n**Running:** `%s`\n", args.Command))
 						output, _ = RunCommand(args.Command)
 						if output != "" {
 							u.chunkChan <- responseMsg(fmt.Sprintf("```\n%s\n```\n", strings.TrimSpace(output)))
@@ -264,7 +264,7 @@ func (u *UI) RunInteractiveSession() {
 					Query string `json:"query"`
 				}
 				if err := ollama.ParseToolArguments(tc.Function.Arguments, &args); err == nil {
-					u.chunkChan <- responseMsg("\n" + headerStyle.Render("Searching:") + infoStyle.Render(args.Query) + "\n")
+					u.chunkChan <- responseMsg(fmt.Sprintf("\n**Searching:** `%s`\n", args.Query))
 					output, err := BraveSearch(args.Query)
 					if err != nil {
 						output = fmt.Sprintf("Error: %v", err)
@@ -284,7 +284,7 @@ func (u *UI) RunInteractiveSession() {
 					Action string `json:"action"`
 				}
 				if err := ollama.ParseToolArguments(tc.Function.Arguments, &args); err == nil {
-					u.chunkChan <- responseMsg("\n" + headerStyle.Render("Browsing:") + infoStyle.Render(fmt.Sprintf("%s (%s)", args.URL, args.Action)) + "\n")
+					u.chunkChan <- responseMsg(fmt.Sprintf("\n**Browsing:** `%s` *(%s)*\n", args.URL, args.Action))
 					output, err := ChromeCDP(args.URL, args.Action)
 					if err != nil {
 						output = fmt.Sprintf("Error: %v", err)

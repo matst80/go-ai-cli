@@ -2,7 +2,10 @@ package terminal
 
 import (
 	"context"
+	"encoding/base64"
 	"fmt"
+	"io"
+	"net/http"
 	"os"
 	"os/exec"
 	"runtime"
@@ -67,4 +70,51 @@ func HandleSuggestedCommand(cmd string) {
 	} else {
 		fmt.Printf("\nSuggested command: %s\n", cmd)
 	}
+}
+
+// ProcessInputs handles piped stdin and file arguments, returning a prompt, images, and any error
+func ProcessInputs(args []string) (string, []string, error) {
+	var images []string
+	var extraContent []string
+	var promptParts []string
+
+	// Check if stdin is piped
+	if !isatty.IsTerminal(os.Stdin.Fd()) {
+		data, err := io.ReadAll(os.Stdin)
+		if err == nil && len(data) > 0 {
+			mimeType := http.DetectContentType(data)
+			if strings.HasPrefix(mimeType, "image/") {
+				images = append(images, base64.StdEncoding.EncodeToString(data))
+			} else {
+				extraContent = append(extraContent, string(data))
+			}
+		}
+	}
+
+	for _, arg := range args {
+		// Only treat as file if it exists and is not a directory
+		if info, err := os.Stat(arg); err == nil && !info.IsDir() {
+			data, err := os.ReadFile(arg)
+			if err == nil {
+				mimeType := http.DetectContentType(data)
+				if strings.HasPrefix(mimeType, "image/") {
+					images = append(images, base64.StdEncoding.EncodeToString(data))
+				} else {
+					extraContent = append(extraContent, fmt.Sprintf("\n--- File: %s ---\n%s\n", arg, string(data)))
+				}
+				continue
+			}
+		}
+		promptParts = append(promptParts, arg)
+	}
+
+	prompt := strings.Join(promptParts, " ")
+	if len(extraContent) > 0 {
+		if prompt != "" {
+			prompt += "\n"
+		}
+		prompt += strings.Join(extraContent, "\n")
+	}
+
+	return prompt, images, nil
 }

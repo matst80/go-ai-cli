@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"runtime"
-	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/matst80/go-ai-cli/pkg/ollama"
@@ -31,9 +30,14 @@ func main() {
 		os.Setenv("CHROME_REMOTE_URL", *cdpFlag)
 	}
 
-	prompt := strings.Join(flag.Args(), " ")
-	if prompt == "" {
-		fmt.Println("Usage: ai [--cdp <url/port>] [--style <style>] [--yolo] <prompt>")
+	prompt, images, err := terminal.ProcessInputs(flag.Args())
+	if err != nil {
+		fmt.Printf("Error processing input: %v\n", err)
+		os.Exit(1)
+	}
+
+	if prompt == "" && len(images) == 0 {
+		fmt.Println("Usage: ai [--cdp <url/port>] [--style <style>] [--yolo] <prompt> [files...]")
 		os.Exit(1)
 	}
 	ollamaURL := os.Getenv("OLLAMA_URL")
@@ -65,7 +69,7 @@ func main() {
 			Type: "function",
 			Function: ollama.Function{
 				Name:        "run_command",
-				Description: "Run a shell command. Use this to explore or run tests before giving a final answer. (dont run destructive commands like rm -rf)",
+				Description: "Run a shell command. Use this to explore or run tests before giving a final answer.",
 				Parameters: map[string]interface{}{
 					"type": "object",
 					"properties": map[string]interface{}{
@@ -82,7 +86,7 @@ func main() {
 			Type: "function",
 			Function: ollama.Function{
 				Name:        "chrome_cdp",
-				Description: "Run a browser task using CDP. Use this for scraping pages or interacting with JS-heavy sites.",
+				Description: "Control a browser",
 				Parameters: map[string]interface{}{
 					"type": "object",
 					"properties": map[string]interface{}{
@@ -92,7 +96,7 @@ func main() {
 						},
 						"action": map[string]interface{}{
 							"type":        "string",
-							"description": "The action to perform (e.g., 'scrape', 'screenshot', 'navigate').",
+							"description": "The action to perform",
 							"enum":        []string{"scrape", "screenshot", "navigate"},
 						},
 					},
@@ -143,6 +147,7 @@ func main() {
 			{
 				Role:    "user",
 				Content: prompt,
+				Images:  images,
 			},
 		},
 		Tools:  tools,
