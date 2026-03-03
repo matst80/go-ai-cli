@@ -46,7 +46,7 @@ func Load() (*Config, error) {
 Please respond with markdown.
 
 To save a code block to a specific file path, use the format:
-%[2]slanguage:path/to/file.ext
+%[2]slanguage:filename.ext
 content
 %[2]s
 `, runtime.GOOS, "```")

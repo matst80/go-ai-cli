@@ -115,6 +115,10 @@ func main() {
 							"type":        "string",
 							"description": "The search query.",
 						},
+						"country": map[string]interface{}{
+							"type":        "string",
+							"description": "The country code for the search (e.g. 'us', 'gb', 'se', 'de'). Optional.",
+						},
 					},
 					"required": []string{"query"},
 				},

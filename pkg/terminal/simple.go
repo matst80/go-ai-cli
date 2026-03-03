@@ -36,7 +36,8 @@ func RunSimpleSession(client *ollama.Client, req ollama.ChatRequest) (string, er
 
 		for msg := range workerCh {
 			if msg.Error != nil {
-				return "", msg.Error
+				fmt.Printf("\n\n**Error:** %v\n", msg.Error)
+				break
 			}
 			if msg.ReasoningContent != "" {
 				if assistantMsg.ReasoningContent == "" {
@@ -95,11 +96,12 @@ func RunSimpleSession(client *ollama.Client, req ollama.ChatRequest) (string, er
 				}
 			case "web_search":
 				var args struct {
-					Query string `json:"query"`
+					Query   string `json:"query"`
+					Country string `json:"country"`
 				}
 				if err := ollama.ParseToolArguments(tc.Function.Arguments, &args); err == nil {
 					fmt.Printf("\n> Searching: %s...\n", args.Query)
-					output, err := BraveSearch(args.Query)
+					output, err := BraveSearch(args.Query, args.Country)
 					if err != nil {
 						output = fmt.Sprintf("Error: %v", err)
 					}

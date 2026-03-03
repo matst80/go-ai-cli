@@ -322,8 +322,8 @@ func (u *UI) RunInteractiveSession() {
 
 		for msg := range workerCh {
 			if msg.Error != nil {
-				u.chunkChan <- errorMsg(msg.Error)
-				return
+				u.chunkChan <- responseMsg(fmt.Sprintf("\n\n**Error:** %v\n", msg.Error))
+				break
 			}
 			if msg.ReasoningContent != "" {
 				assistantMsg.ReasoningContent += msg.ReasoningContent
@@ -388,11 +388,12 @@ func (u *UI) RunInteractiveSession() {
 				}
 			case "web_search":
 				var args struct {
-					Query string `json:"query"`
+					Query   string `json:"query"`
+					Country string `json:"country"`
 				}
 				if err := ollama.ParseToolArguments(tc.Function.Arguments, &args); err == nil {
 					u.chunkChan <- responseMsg(fmt.Sprintf("\n**Searching:** `%s`\n", args.Query))
-					output, err := BraveSearch(args.Query)
+					output, err := BraveSearch(args.Query, args.Country)
 					if err != nil {
 						output = fmt.Sprintf("Error: %v", err)
 					}
