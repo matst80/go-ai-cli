@@ -5,8 +5,10 @@ import (
 	"fmt"
 	"os"
 	"runtime"
+	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/matst80/go-ai-cli/pkg/config"
 	"github.com/matst80/go-ai-cli/pkg/ollama"
 	"github.com/matst80/go-ai-cli/pkg/terminal"
 	"github.com/mattn/go-isatty"
@@ -104,6 +106,23 @@ func main() {
 				},
 			},
 		},
+		{
+			Type: "function",
+			Function: ollama.Function{
+				Name:        "remember",
+				Description: "Save information to persistent memory",
+				Parameters: map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"info": map[string]interface{}{
+							"type":        "string",
+							"description": "The information to remember for future sessions.",
+						},
+					},
+					"required": []string{"info"},
+				},
+			},
+		},
 	}
 
 	if os.Getenv("BRAVE_API_KEY") != "" {
@@ -131,7 +150,17 @@ func main() {
 	// 	osName = "macOS"
 	// }
 
+	cfg, _ := config.Load()
+
 	systemPrompt := fmt.Sprintf("You are a terminal expert for %s. find a way to help the user", osName)
+	if cfg != nil {
+		if cfg.SystemPrompt != "" {
+			systemPrompt = cfg.SystemPrompt
+		}
+		if len(cfg.Memory) > 0 {
+			systemPrompt += "\n\nMemory:\n- " + strings.Join(cfg.Memory, "\n- ")
+		}
+	}
 
 	ollamaModel := os.Getenv("OLLAMA_MODEL")
 	if ollamaModel == "" {

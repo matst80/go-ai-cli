@@ -51,11 +51,28 @@ The tool can be configured using the following environment variables:
 | `AI_YOLO` | Run all commands without confirmation. | `false` |
 | `GLAMOUR_STYLE` | Fallback environment variable for the output theme. Compatible with `glow`. | (None) |
 
+### Configuration File
+
+The tool also supports a configuration file at `~/.ai-cli/config`. This file uses a simple JSON format:
+
+```json
+{
+  "system_prompt": "Optional custom system prompt",
+  "memory": [
+    "Information to remember for all sessions",
+    "e.g. Prefer using zsh instead of bash"
+  ]
+}
+```
+
+### Persistent Memory and Custom Prompt
+
+The AI can now remember information across sessions using the `remember` tool, or update its own system prompt using the `set_system_prompt` tool. These changes are saved to your configuration file.
+
 Example:
 ```bash
-export OLLAMA_URL="http://10.10.10.108:11434/api/chat"
-export BRAVE_API_KEY="your_api_key_here"
-export AI_YOLO=true
+./ai "remember that I prefer using homebrew for package management"
+./ai "set my system prompt to 'You are a Go performance expert'"
 ```
 
 ## Usage

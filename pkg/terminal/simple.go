@@ -6,6 +6,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/matst80/go-ai-cli/pkg/config"
 	"github.com/matst80/go-ai-cli/pkg/ollama"
 )
 
@@ -121,6 +122,48 @@ func RunSimpleSession(client *ollama.Client, req ollama.ChatRequest) (string, er
 						Role:       "tool",
 						ToolCallID: tc.ID,
 						Content:    output,
+					})
+					hasRunCommand = true
+				}
+			case "remember":
+				var args struct {
+					Info string `json:"info"`
+				}
+				if err := ollama.ParseToolArguments(tc.Function.Arguments, &args); err == nil {
+					cfg, _ := config.Load()
+					if cfg == nil {
+						cfg = &config.Config{}
+					}
+					cfg.Memory = append(cfg.Memory, args.Info)
+					_ = cfg.Save()
+
+					fmt.Printf("\n> Remembered: %s\n", args.Info)
+
+					toolResponses = append(toolResponses, ollama.Message{
+						Role:       "tool",
+						ToolCallID: tc.ID,
+						Content:    "Memory saved",
+					})
+					hasRunCommand = true
+				}
+			case "set_system_prompt":
+				var args struct {
+					Prompt string `json:"prompt"`
+				}
+				if err := ollama.ParseToolArguments(tc.Function.Arguments, &args); err == nil {
+					cfg, _ := config.Load()
+					if cfg == nil {
+						cfg = &config.Config{}
+					}
+					cfg.SystemPrompt = args.Prompt
+					_ = cfg.Save()
+
+					fmt.Printf("\n> System prompt updated\n")
+
+					toolResponses = append(toolResponses, ollama.Message{
+						Role:       "tool",
+						ToolCallID: tc.ID,
+						Content:    "System prompt updated",
 					})
 					hasRunCommand = true
 				}

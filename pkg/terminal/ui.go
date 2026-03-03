@@ -9,6 +9,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/glamour"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/matst80/go-ai-cli/pkg/config"
 	"github.com/matst80/go-ai-cli/pkg/ollama"
 )
 
@@ -318,6 +319,48 @@ func (u *UI) RunInteractiveSession() {
 						Role:       "tool",
 						ToolCallID: tc.ID,
 						Content:    output,
+					})
+					hasRunCommand = true
+				}
+			case "remember":
+				var args struct {
+					Info string `json:"info"`
+				}
+				if err := ollama.ParseToolArguments(tc.Function.Arguments, &args); err == nil {
+					cfg, _ := config.Load()
+					if cfg == nil {
+						cfg = &config.Config{}
+					}
+					cfg.Memory = append(cfg.Memory, args.Info)
+					_ = cfg.Save()
+
+					u.chunkChan <- responseMsg(fmt.Sprintf("\n**Remembered:** %s\n", args.Info))
+
+					toolResponses = append(toolResponses, ollama.Message{
+						Role:       "tool",
+						ToolCallID: tc.ID,
+						Content:    "Memory saved",
+					})
+					hasRunCommand = true
+				}
+			case "set_system_prompt":
+				var args struct {
+					Prompt string `json:"prompt"`
+				}
+				if err := ollama.ParseToolArguments(tc.Function.Arguments, &args); err == nil {
+					cfg, _ := config.Load()
+					if cfg == nil {
+						cfg = &config.Config{}
+					}
+					cfg.SystemPrompt = args.Prompt
+					_ = cfg.Save()
+
+					u.chunkChan <- responseMsg("\n**System prompt updated**\n")
+
+					toolResponses = append(toolResponses, ollama.Message{
+						Role:       "tool",
+						ToolCallID: tc.ID,
+						Content:    "System prompt updated",
 					})
 					hasRunCommand = true
 				}
