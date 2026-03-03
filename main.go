@@ -53,14 +53,14 @@ func main() {
 		{
 			Type: "function",
 			Function: ollama.Function{
-				Name:        "add_command",
-				Description: "Suggest a terminal command",
+				Name:        "suggest_command",
+				Description: "Suggest a command for the user to run later, prefer run if the user is not asking for a command",
 				Parameters: map[string]interface{}{
 					"type": "object",
 					"properties": map[string]interface{}{
 						"command": map[string]interface{}{
 							"type":        "string",
-							"description": "The command string to add to the terminal.",
+							"description": "The command",
 						},
 					},
 					"required": []string{"command"},
@@ -70,7 +70,7 @@ func main() {
 		{
 			Type: "function",
 			Function: ollama.Function{
-				Name:        "run_command",
+				Name:        "run",
 				Description: "Run a shell command",
 				Parameters: map[string]interface{}{
 					"type": "object",
@@ -152,7 +152,7 @@ func main() {
 
 	cfg, _ := config.Load()
 
-	systemPrompt := fmt.Sprintf("You are a terminal expert for %s. find a way to help the user", osName)
+	systemPrompt := fmt.Sprintf("You are a terminal expert for %s. Find a way to help the user using the available tools.", osName)
 	if cfg != nil {
 		if cfg.SystemPrompt != "" {
 			systemPrompt = cfg.SystemPrompt

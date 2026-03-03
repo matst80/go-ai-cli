@@ -6,6 +6,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/glamour"
 	"github.com/charmbracelet/lipgloss"
@@ -29,6 +30,53 @@ var (
 			Padding(0, 1)
 )
 
+// escapeHTMLOutsideCodeBlocks escapes '<' to prevent markdown parser from eating unknown HTML tags
+func escapeHTMLOutsideCodeBlocks(content string) string {
+	var result strings.Builder
+	inCodeBlock := false
+
+	lines := strings.Split(content, "\n")
+	for i, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "```") {
+			inCodeBlock = !inCodeBlock
+			result.WriteString(line)
+			if i < len(lines)-1 {
+				result.WriteString("\n")
+			}
+			continue
+		}
+
+		if inCodeBlock {
+			result.WriteString(line)
+			if i < len(lines)-1 {
+				result.WriteString("\n")
+			}
+			continue
+		}
+
+		inInlineCode := false
+		var processed strings.Builder
+		chars := []rune(line)
+		for j := 0; j < len(chars); j++ {
+			if chars[j] == '`' {
+				inInlineCode = !inInlineCode
+				processed.WriteRune(chars[j])
+			} else if chars[j] == '<' && !inInlineCode {
+				processed.WriteString("\\<")
+			} else {
+				processed.WriteRune(chars[j])
+			}
+		}
+
+		result.WriteString(processed.String())
+		if i < len(lines)-1 {
+			result.WriteString("\n")
+		}
+	}
+	return result.String()
+}
+
 // UI represents the tool's Bubble Tea model and methods
 type UI struct {
 	content       string
@@ -46,6 +94,7 @@ type UI struct {
 	confirmCmd    string
 	ctx           context.Context
 	cancel        context.CancelFunc
+	spinner       spinner.Model
 }
 
 // Msg types for Bubble Tea
@@ -62,21 +111,29 @@ type confirmationMsg struct {
 // NewUI creates a new UI model
 func NewUI(client *ollama.Client, req ollama.ChatRequest) *UI {
 	ctx, cancel := context.WithCancel(context.Background())
+	s := spinner.New()
+	s.Spinner = spinner.Dot
+	s.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("205"))
 	return &UI{
 		client:    client,
 		request:   req,
 		chunkChan: make(chan tea.Msg),
 		ctx:       ctx,
 		cancel:    cancel,
+		spinner:   s,
 	}
 }
 
 func (u *UI) Init() tea.Cmd {
-	return nil
+	return u.spinner.Tick
 }
 
 func (u *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
+	case spinner.TickMsg:
+		var cmd tea.Cmd
+		u.spinner, cmd = u.spinner.Update(msg)
+		return u, cmd
 	case tea.KeyMsg:
 		if msg.Type == tea.KeyCtrlC {
 			return u, tea.Quit
@@ -108,7 +165,7 @@ func (u *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case toolCallMsg:
 		u.toolWasCalled = true
 		for _, tc := range msg {
-			if tc.Function.Name == "add_command" {
+			if tc.Function.Name == "suggest_command" {
 				var args struct {
 					Command string `json:"command"`
 				}
@@ -139,16 +196,23 @@ func (u *UI) View() string {
 
 	var out string
 	if u.content == "" && u.reasoning == "" {
-		status := " Thinking..."
+		status := fmt.Sprintf(" %s Thinking...", u.spinner.View())
 		if u.toolWasCalled {
-			status = " Preparing command..."
+			status = fmt.Sprintf(" %s Preparing command...", u.spinner.View())
 		}
-		out = status
+		out = lipgloss.NewStyle().Foreground(lipgloss.Color("240")).Render(status)
 	} else {
 		displayContent := u.content
 		if u.reasoning != "" {
 			displayContent = "_Thinking..._\n" + u.reasoning + "\n\n---\n\n" + u.content
 		}
+
+		// Ensure code blocks are closed for partial rendering so they show up properly while streaming
+		if strings.Count(displayContent, "```")%2 != 0 {
+			displayContent += "\n```"
+		}
+
+		displayContent = escapeHTMLOutsideCodeBlocks(displayContent)
 
 		if u.renderer == nil {
 			w := u.width
@@ -176,6 +240,10 @@ func (u *UI) View() string {
 
 		rendered, _ := u.renderer.Render(displayContent)
 		out = rendered
+
+		if !u.done && u.confirmCh == nil {
+			out += fmt.Sprintf("\n %s\n", u.spinner.View())
+		}
 	}
 
 	if u.confirmCh != nil {
@@ -186,8 +254,8 @@ func (u *UI) View() string {
 			choices)
 
 		promptView := "\n" + borderStyle.Render(prompt) + "\n"
-		if out == " Preparing command..." || out == " Thinking..." {
-			// If we're just showing status, replace it or prepend it
+		if u.content == "" && u.reasoning == "" {
+			// If we're just showing status, replace it
 			out = promptView
 		} else {
 			out += promptView
@@ -246,7 +314,7 @@ func (u *UI) RunInteractiveSession() {
 
 		for _, tc := range assistantMsg.ToolCalls {
 			switch tc.Function.Name {
-			case "run_command":
+			case "run":
 				var args struct {
 					Command string `json:"command"`
 				}

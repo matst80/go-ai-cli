@@ -41,7 +41,7 @@ func RunSimpleSession(client *ollama.Client, req ollama.ChatRequest) (string, er
 			if len(msg.ToolCalls) > 0 {
 				assistantMsg.ToolCalls = append(assistantMsg.ToolCalls, msg.ToolCalls...)
 				for _, tc := range msg.ToolCalls {
-					if tc.Function.Name == "add_command" {
+					if tc.Function.Name == "suggest_command" {
 						var args struct {
 							Command string `json:"command"`
 						}
@@ -62,7 +62,7 @@ func RunSimpleSession(client *ollama.Client, req ollama.ChatRequest) (string, er
 
 		for _, tc := range assistantMsg.ToolCalls {
 			switch tc.Function.Name {
-			case "run_command":
+			case "run":
 				var args struct {
 					Command string `json:"command"`
 				}

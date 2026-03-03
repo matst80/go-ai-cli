@@ -83,7 +83,7 @@ Example:
 
 ### Confirmation and YOLO
 
-By default, any `run_command` tool execution will prompt for confirmation. You can bypass this using the `--yolo` flag or `AI_YOLO=true` environment variable.
+By default, any `run` tool execution will prompt for confirmation. You can bypass this using the `--yolo` flag or `AI_YOLO=true` environment variable.
 
 ```bash
 # Ask for confirmation (default)
