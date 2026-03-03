@@ -116,16 +116,29 @@ func ExtractCommandFromMarkdown(content string) string {
 	return lastCommand
 }
 
+// CopyToClipboard uses the OSC 52 escape sequence to copy text to the system clipboard.
+// This is supported by many modern terminals (iTerm2, Alacritty, Kitty, VSCode, etc).
+func CopyToClipboard(text string) {
+	if text == "" {
+		return
+	}
+	// OSC 52: \033]52;c;<base64>\007
+	fmt.Fprintf(os.Stderr, "\033]52;c;%s\007", base64.StdEncoding.EncodeToString([]byte(text)))
+}
+
 // HandleSuggestedCommand presents a command for the user to run
 func HandleSuggestedCommand(cmd string) {
 	if isatty.IsTerminal(os.Stdin.Fd()) && runtime.GOOS != "windows" {
+		// Also copy to clipboard for convenience
+		CopyToClipboard(cmd)
+
 		// Small delay to let the shell prompt reappear if any
 		time.Sleep(150 * time.Millisecond)
 		for _, c := range []byte(cmd) {
 			_, _, _ = syscall.Syscall(syscall.SYS_IOCTL, os.Stdin.Fd(), syscall.TIOCSTI, uintptr(unsafe.Pointer(&c)))
 		}
 	}
-	fmt.Printf("\nSuggested command: %s\n", cmd)
+	fmt.Printf("\nSuggested command: %s (copied to clipboard)\n", cmd)
 }
 
 // ProcessInputs handles piped stdin and file arguments, returning a prompt, images, and any error

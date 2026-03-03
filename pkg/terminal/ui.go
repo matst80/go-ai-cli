@@ -95,7 +95,7 @@ type UI struct {
 	ctx           context.Context
 	cancel        context.CancelFunc
 	spinner       spinner.Model
-	savedFiles    map[string]string
+	savedFiles    []SavedFile
 }
 
 // Msg types for Bubble Tea
@@ -111,6 +111,7 @@ type confirmationMsg struct {
 type fileSavedMsg struct {
 	Filename string
 	Content  string
+	IsTemp   bool
 }
 type commandMsg string
 
@@ -127,7 +128,7 @@ func NewUI(client *ollama.Client, req ollama.ChatRequest) *UI {
 		ctx:        ctx,
 		cancel:     cancel,
 		spinner:    s,
-		savedFiles: make(map[string]string),
+		savedFiles: make([]SavedFile, 0),
 	}
 }
 
@@ -180,11 +181,21 @@ func (u *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		u.err = msg
 		return u, tea.Quit
 	case fileSavedMsg:
-		u.savedFiles[msg.Filename] = msg.Content
+		u.savedFiles = append(u.savedFiles, SavedFile{
+			Path:    msg.Filename,
+			Content: msg.Content,
+			IsTemp:  msg.IsTemp,
+		})
 		return u, u.waitForNextChunk()
 	case commandMsg:
 		u.preparedCmd = string(msg)
+		CopyToClipboard(string(msg))
 		return u, u.waitForNextChunk()
+	case tea.MouseMsg:
+		if msg.Type == tea.MouseLeft && u.confirmCh != nil {
+			// Basic click detection for [y/N]
+			// This is just to show mouse support is active
+		}
 	case doneMsg:
 		u.done = true
 		return u, tea.Quit
@@ -244,10 +255,10 @@ func (u *UI) View() string {
 		rendered, _ := u.renderer.Render(displayContent)
 
 		// Post-process markers for saved files
-		for filename := range u.savedFiles {
-			marker := fmt.Sprintf("@@SAVED:%s@@", filename)
+		for _, f := range u.savedFiles {
+			marker := fmt.Sprintf("@@SAVED:%s@@", f.Path)
 			if strings.Contains(rendered, marker) {
-				rendered = strings.ReplaceAll(rendered, marker, u.renderFileSavedLines(filename))
+				rendered = strings.ReplaceAll(rendered, marker, u.renderFileSavedLines(f.Path))
 			}
 		}
 
@@ -260,9 +271,10 @@ func (u *UI) View() string {
 
 	if u.confirmCh != nil {
 		choices := lipgloss.NewStyle().Foreground(lipgloss.Color("240")).Render("[y/N]")
-		prompt := fmt.Sprintf("⚡ %s%s\n\n%s ",
+		prompt := fmt.Sprintf("⚡ %s%s\n%s\n\n%s ",
 			headerStyle.Render("Run command:"),
 			infoStyle.Render(u.confirmCmd),
+			lipgloss.NewStyle().Foreground(lipgloss.Color("245")).Italic(true).Render("(copied to clipboard)"),
 			choices)
 
 		promptView := "\n" + borderStyle.Render(prompt) + "\n"
@@ -300,8 +312,8 @@ func (u *UI) RunInteractiveSession() {
 
 		sh := NewStreamHandler(
 			func(text string) { u.chunkChan <- responseMsg(text) },
-			func(filename, content string) {
-				u.chunkChan <- fileSavedMsg{Filename: filename, Content: content}
+			func(filename, content string, isTemp bool) {
+				u.chunkChan <- fileSavedMsg{Filename: filename, Content: content, IsTemp: isTemp}
 			},
 			func(cmd string) {
 				u.chunkChan <- commandMsg(cmd)
@@ -337,7 +349,7 @@ func (u *UI) RunInteractiveSession() {
 
 		for _, tc := range assistantMsg.ToolCalls {
 			switch tc.Function.Name {
-			case "run":
+			case "execute":
 				var args struct {
 					Command string `json:"command"`
 				}
@@ -470,7 +482,14 @@ func (u *UI) RunInteractiveSession() {
 }
 
 func (u *UI) renderFileSavedLines(filename string) string {
-	content := u.savedFiles[filename]
+	var f SavedFile
+	for _, sf := range u.savedFiles {
+		if sf.Path == filename {
+			f = sf
+			break
+		}
+	}
+	content := f.Content
 	size := len(content)
 
 	titleStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("82")).Bold(true)
@@ -506,8 +525,12 @@ func (u *UI) renderFileSavedLines(filename string) string {
 }
 
 // GetResult methods for after the program runs
-func (u *UI) GetPreparedCmd() string  { return u.preparedCmd }
-func (u *UI) GetContent() string      { return u.content }
-func (u *UI) GetError() error         { return u.err }
-func (u *UI) ToolWasCalled() bool     { return u.toolWasCalled }
+func (u *UI) GetPreparedCmd() string { return u.preparedCmd }
+func (u *UI) GetContent() string     { return u.content }
+func (u *UI) GetError() error        { return u.err }
+func (u *UI) ToolWasCalled() bool    { return u.toolWasCalled }
+func (u *UI) GetSavedFiles() []SavedFile {
+	return u.savedFiles
+}
+
 func (u *UI) ChunkChan() chan tea.Msg { return u.chunkChan }

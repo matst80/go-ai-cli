@@ -11,6 +11,7 @@ import (
 	"github.com/matst80/go-ai-cli/pkg/ollama"
 	"github.com/matst80/go-ai-cli/pkg/terminal"
 	"github.com/mattn/go-isatty"
+	"k8s.io/utils/strings/slices"
 )
 
 func main() {
@@ -27,7 +28,7 @@ func main() {
 	}
 
 	if prompt == "" && len(images) == 0 {
-		fmt.Println("Usage: ai [--cdp <url/port>] [--style <style>] [--yolo] [--url <url>] [--model <model>] <prompt> [files...]")
+		fmt.Println("Usage: ai [--cdp <url/port>] [--style <style>] [--yolo] [--thinking] [--url <url>] [--model <model>] <prompt> [files...]")
 		os.Exit(1)
 	}
 
@@ -37,8 +38,8 @@ func main() {
 		{
 			Type: "function",
 			Function: ollama.Function{
-				Name:        "run",
-				Description: "Run a shell command, dont use it to write files",
+				Name:        "execute",
+				Description: "Run a command",
 				Parameters: map[string]interface{}{
 					"type": "object",
 					"properties": map[string]interface{}{
@@ -132,7 +133,7 @@ func main() {
 		},
 		Tools:  tools,
 		Stream: true,
-		Think:  true,
+		Think:  cfg.Thinking,
 		Options: map[string]interface{}{
 			"temperature": 0.5,
 			"num_ctx":     16384, // Ensure enough room for long tool-calling sessions
@@ -158,7 +159,7 @@ func main() {
 	}
 
 	ui := terminal.NewUI(client, reqBody)
-	p := tea.NewProgram(ui)
+	p := tea.NewProgram(ui, tea.WithMouseCellMotion())
 
 	// Start logic loop
 	go ui.RunInteractiveSession()
@@ -177,17 +178,34 @@ func main() {
 	if finalModel, ok := res.(*terminal.UI); ok {
 		if finalModel.GetError() != nil {
 			fmt.Printf("\nError: %v\n", finalModel.GetError())
-		} else if finalModel.GetContent() != "" {
+		}
+
+		savedFiles := finalModel.GetSavedFiles()
+		content := finalModel.GetContent()
+
+		savedTempFiles := slices.Filter(savedFiles, func(f terminal.SavedFile) bool {
+			return f.IsTemp
+		})
+
+		if len(savedTempFiles) > 0 {
+			// Run file viewer with the response content as a tab
+			viewer := terminal.NewFileViewer(content, savedFiles)
+			vp := tea.NewProgram(viewer, tea.WithAltScreen())
+			if _, err := vp.Run(); err != nil {
+				fmt.Printf("Error running file viewer: %v\n", err)
+			}
+		} else if content != "" {
+			// Just show content regular if no files
 			fmt.Print("\n" + finalModel.View())
 		}
 
-		cmd := finalModel.GetPreparedCmd()
-		if cmd == "" && !finalModel.ToolWasCalled() && finalModel.GetContent() != "" {
-			cmd = terminal.ExtractCommandFromMarkdown(finalModel.GetContent())
-		}
+		// cmd := finalModel.GetPreparedCmd()
+		// if cmd == "" && finalModel.GetContent() != "" {
+		// 	cmd = terminal.ExtractCommandFromMarkdown(finalModel.GetContent())
+		// }
 
-		if cmd != "" {
-			terminal.HandleSuggestedCommand(cmd)
-		}
+		// if cmd != "" {
+		// 	terminal.HandleSuggestedCommand(cmd)
+		// }
 	}
 }

@@ -22,8 +22,12 @@ func RunSimpleSession(client *ollama.Client, req ollama.ChatRequest) (string, er
 
 		sh := NewStreamHandler(
 			func(text string) { fmt.Print(text) },
-			func(filename, content string) {
-				fmt.Printf("\n💾 Saved: %s (%d bytes)\n", filename, len(content))
+			func(filename, content string, isTemp bool) {
+				if isTemp {
+					fmt.Printf("\n💾 Saved to temp: %s (%d bytes)\n", filename, len(content))
+				} else {
+					fmt.Printf("\n💾 Saved: %s (%d bytes)\n", filename, len(content))
+				}
 			},
 			func(cmd string) {
 				preparedCmd = cmd
@@ -63,7 +67,7 @@ func RunSimpleSession(client *ollama.Client, req ollama.ChatRequest) (string, er
 
 		for _, tc := range assistantMsg.ToolCalls {
 			switch tc.Function.Name {
-			case "run":
+			case "execute":
 				var args struct {
 					Command string `json:"command"`
 				}

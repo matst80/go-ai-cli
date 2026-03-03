@@ -18,9 +18,9 @@ import (
 // Otherwise, it's saved to a unique temporary file in ~/.ai-cli/tmp.
 // If the language is 'bash' or 'sh', it is also suggested as a command.
 type StreamHandler struct {
-	emit             func(text string)              // forward non-block text
-	fileSaved        func(filename, content string) // notify on file save
-	commandSuggested func(command string)           // notify on command suggestion
+	emit             func(text string)                           // forward non-block text
+	fileSaved        func(filename, content string, isTemp bool) // notify on file save
+	commandSuggested func(command string)                        // notify on command suggestion
 	inBlock          bool
 	isCommand        bool
 	lang             string
@@ -29,7 +29,7 @@ type StreamHandler struct {
 	lineBuffer       string // partial line accumulator
 }
 
-func NewStreamHandler(emit func(string), fileSaved func(string, string), commandSuggested func(string)) *StreamHandler {
+func NewStreamHandler(emit func(string), fileSaved func(string, string, bool), commandSuggested func(string)) *StreamHandler {
 	return &StreamHandler{emit: emit, fileSaved: fileSaved, commandSuggested: commandSuggested}
 }
 
@@ -102,7 +102,7 @@ func (sh *StreamHandler) processLine(line string) {
 
 		if sh.lang == "bash" || sh.lang == "sh" {
 			sh.isCommand = true
-			sh.emit("\n**Suggested Command:**\n")
+			//sh.emit("\n**Suggested Command:**\n") // Removed to follow "only last one" and avoid buffering headers
 		} else if sh.filename != "" {
 			sh.emit(fmt.Sprintf("\n**Writing:** `%s`\n", sh.filename))
 		}
@@ -165,12 +165,8 @@ func (sh *StreamHandler) completeBlock() {
 		return
 	}
 
-	if isTemp {
-		sh.emit(fmt.Sprintf("\n**Stored temp:** `%s`\n", filename))
-	}
-
 	if sh.fileSaved != nil {
-		sh.fileSaved(filename, content)
+		sh.fileSaved(filename, content, isTemp)
 	}
 
 	if isCmd && sh.commandSuggested != nil {

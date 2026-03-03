@@ -11,7 +11,7 @@ func TestStreamHandler_TempFile(t *testing.T) {
 	var savedFile string
 	sh := NewStreamHandler(
 		func(text string) {},
-		func(filename, content string) { savedFile = filename },
+		func(filename, content string, isTemp bool) { savedFile = filename },
 		func(cmd string) {},
 	)
 
@@ -38,7 +38,7 @@ func TestStreamHandler_ExplicitFile(t *testing.T) {
 	var savedFile string
 	sh := NewStreamHandler(
 		func(text string) {},
-		func(filename, content string) { savedFile = filename },
+		func(filename, content string, isTemp bool) { savedFile = filename },
 		func(cmd string) {},
 	)
 
@@ -60,7 +60,7 @@ func TestStreamHandler_BashAndTemp(t *testing.T) {
 	var suggestedCmd string
 	sh := NewStreamHandler(
 		func(text string) {},
-		func(filename, content string) { savedFile = filename },
+		func(filename, content string, isTemp bool) { savedFile = filename },
 		func(cmd string) { suggestedCmd = cmd },
 	)
 

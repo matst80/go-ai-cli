@@ -18,6 +18,7 @@ type Config struct {
 	URL          string                 `json:"url,omitempty"`
 	Model        string                 `json:"model,omitempty"`
 	ModelOptions map[string]interface{} `json:"model_options,omitempty"`
+	Thinking     bool                   `json:"thinking,omitempty"`
 	CDP          string                 `json:"-"` // Not saved to file
 }
 
@@ -69,6 +70,9 @@ command
 	if os.Getenv("AI_YOLO") == "true" {
 		cfg.Yolo = true
 	}
+	if os.Getenv("AI_THINKING") == "true" {
+		cfg.Thinking = true
+	}
 	if envCDP := os.Getenv("CHROME_REMOTE_URL"); envCDP != "" {
 		cfg.CDP = envCDP
 	}
@@ -80,11 +84,13 @@ command
 	var yoloFlag *bool
 	var urlFlag *string
 	var modelFlag *string
+	var thinkingFlag *bool
 
 	if flag.Lookup("cdp") == nil {
 		cdpFlag = flag.String("cdp", cfg.CDP, "Remote CDP URL or port (e.g. 9222 or localhost:9222)")
 		styleFlag = flag.String("style", cfg.Style, "Output style (dark, light, or auto)")
 		yoloFlag = flag.Bool("yolo", cfg.Yolo, "Run all commands without confirmation")
+		thinkingFlag = flag.Bool("thinking", cfg.Thinking, "Enable thinking/reasoning for Ollama")
 		urlFlag = flag.String("url", cfg.URL, "Ollama API URL")
 		modelFlag = flag.String("model", cfg.Model, "Ollama model name")
 	} else {
@@ -95,6 +101,8 @@ command
 		_ = sf.Value.Set(cfg.Style)
 		yf := flag.Lookup("yolo")
 		_ = yf.Value.Set(fmt.Sprintf("%v", cfg.Yolo))
+		tf := flag.Lookup("thinking")
+		_ = tf.Value.Set(fmt.Sprintf("%v", cfg.Thinking))
 		uf := flag.Lookup("url")
 		_ = uf.Value.Set(cfg.URL)
 		mf := flag.Lookup("model")
@@ -107,6 +115,8 @@ command
 		styleFlag = &styleStr
 		yoloVal := yf.Value.(flag.Getter).Get().(bool)
 		yoloFlag = &yoloVal
+		thinkVal := tf.Value.(flag.Getter).Get().(bool)
+		thinkingFlag = &thinkVal
 		urlStr := uf.Value.String()
 		urlFlag = &urlStr
 		modelStr := mf.Value.String()
@@ -121,6 +131,7 @@ command
 	cfg.CDP = *cdpFlag
 	cfg.Style = *styleFlag
 	cfg.Yolo = *yoloFlag
+	cfg.Thinking = *thinkingFlag
 	cfg.URL = *urlFlag
 	cfg.Model = *modelFlag
 
@@ -138,6 +149,9 @@ command
 	// Sync back to Env for sub-packages
 	if cfg.Yolo {
 		os.Setenv("AI_YOLO", "true")
+	}
+	if cfg.Thinking {
+		os.Setenv("AI_THINKING", "true")
 	}
 	if cfg.Style != "" {
 		os.Setenv("AI_STYLE", cfg.Style)
