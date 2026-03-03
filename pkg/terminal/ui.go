@@ -406,7 +406,7 @@ func (u *UI) RunInteractiveSession() {
 					})
 					hasRunCommand = true
 				}
-			case "chrome_cdp":
+			case "browser":
 				var args struct {
 					URL    string `json:"url"`
 					Action string `json:"action"`

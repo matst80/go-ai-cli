@@ -113,7 +113,7 @@ func RunSimpleSession(client *ollama.Client, req ollama.ChatRequest) (string, er
 					})
 					hasRunCommand = true
 				}
-			case "chrome_cdp":
+			case "browser":
 				var args struct {
 					URL    string `json:"url"`
 					Action string `json:"action"`

@@ -64,8 +64,8 @@ func main() {
 		{
 			Type: "function",
 			Function: ollama.Function{
-				Name:        "chrome_cdp",
-				Description: "Control a browser",
+				Name:        "browser",
+				Description: "Control local browser",
 				Parameters: map[string]interface{}{
 					"type": "object",
 					"properties": map[string]interface{}{
@@ -74,9 +74,8 @@ func main() {
 							"description": "The URL to visit.",
 						},
 						"action": map[string]interface{}{
-							"type":        "string",
-							"description": "The action to perform",
-							"enum":        []string{"scrape", "screenshot", "navigate"},
+							"type": "string",
+							"enum": []string{"scrape", "screenshot", "navigate"},
 						},
 					},
 					"required": []string{"url", "action"},

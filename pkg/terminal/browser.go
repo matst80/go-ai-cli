@@ -21,7 +21,7 @@ func BraveSearch(query, country string) (string, error) {
 		return "", fmt.Errorf("BRAVE_API_KEY environment variable is not set")
 	}
 
-	url := fmt.Sprintf("https://api.search.brave.com/res/v1/web/search?q=%s&result_filter=web", strings.ReplaceAll(query, " ", "+"))
+	url := fmt.Sprintf("https://api.search.brave.com/res/v1/web/search?q=%s&result_filter=web&count=10", strings.ReplaceAll(query, " ", "+"))
 	if country != "" {
 		url += fmt.Sprintf("&country=%s", country)
 	}
@@ -61,9 +61,6 @@ func BraveSearch(query, country string) (string, error) {
 
 	var sb strings.Builder
 	for i, res := range result.Web.Results {
-		if i >= 5 {
-			break
-		}
 		sb.WriteString(fmt.Sprintf("%d. %s\n   URL: %s\n   %s\n\n", i+1, res.Title, res.URL, res.Description))
 	}
 
