@@ -20,6 +20,8 @@ type Config struct {
 	ModelOptions map[string]interface{} `json:"model_options,omitempty"`
 	Thinking     bool                   `json:"thinking,omitempty"`
 	CDP          string                 `json:"-"` // Not saved to file
+	Resume       string                 `json:"-"` // Not saved to file
+	SaveSession  bool                   `json:"-"` // Not saved to file
 }
 
 // GetConfigPath returns the default configuration path (~/.ai-cli/config)
@@ -80,6 +82,8 @@ content
 	var urlFlag *string
 	var modelFlag *string
 	var thinkingFlag *bool
+	var resumeFlag *string
+	var saveFlag *bool
 
 	if flag.Lookup("cdp") == nil {
 		cdpFlag = flag.String("cdp", cfg.CDP, "Remote CDP URL or port (e.g. 9222 or localhost:9222)")
@@ -88,6 +92,8 @@ content
 		thinkingFlag = flag.Bool("thinking", cfg.Thinking, "Enable thinking/reasoning for Ollama")
 		urlFlag = flag.String("url", cfg.URL, "Ollama API URL")
 		modelFlag = flag.String("model", cfg.Model, "Ollama model name")
+		resumeFlag = flag.String("resume", "", "Resume a session by ID or 'last'")
+		saveFlag = flag.Bool("save", false, "Save the session")
 	} else {
 		// Replace values if already defined (for tests or multiple calls)
 		cf := flag.Lookup("cdp")
@@ -102,6 +108,10 @@ content
 		_ = uf.Value.Set(cfg.URL)
 		mf := flag.Lookup("model")
 		_ = mf.Value.Set(cfg.Model)
+		rf := flag.Lookup("resume")
+		_ = rf.Value.Set(cfg.Resume)
+		saf := flag.Lookup("save")
+		_ = saf.Value.Set(fmt.Sprintf("%v", cfg.SaveSession))
 
 		// Create local pointers to match original logic
 		cdpStr := cf.Value.String()
@@ -116,6 +126,10 @@ content
 		urlFlag = &urlStr
 		modelStr := mf.Value.String()
 		modelFlag = &modelStr
+		resumeStr := rf.Value.String()
+		resumeFlag = &resumeStr
+		saveVal := saf.Value.(flag.Getter).Get().(bool)
+		saveFlag = &saveVal
 	}
 
 	if !flag.Parsed() {
@@ -129,6 +143,8 @@ content
 	cfg.Thinking = *thinkingFlag
 	cfg.URL = *urlFlag
 	cfg.Model = *modelFlag
+	cfg.Resume = *resumeFlag
+	cfg.SaveSession = *saveFlag
 
 	// Hardcoded defaults
 	if cfg.URL == "" {

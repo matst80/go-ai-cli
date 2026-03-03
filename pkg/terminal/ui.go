@@ -535,5 +535,8 @@ func (u *UI) ToolWasCalled() bool    { return u.toolWasCalled }
 func (u *UI) GetSavedFiles() []SavedFile {
 	return u.savedFiles
 }
+func (u *UI) GetMessages() []ollama.Message {
+	return u.request.Messages
+}
 
 func (u *UI) ChunkChan() chan tea.Msg { return u.chunkChan }
