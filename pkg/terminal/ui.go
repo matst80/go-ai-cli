@@ -7,12 +7,30 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/glamour"
+	"github.com/charmbracelet/lipgloss"
 	"github.com/matst80/go-ai-cli/pkg/ollama"
+)
+
+var (
+	headerStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("62")).
+			Bold(true).
+			PaddingRight(1)
+	infoStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("205")).
+			Bold(true)
+	skipStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("240"))
+	borderStyle = lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(lipgloss.Color("62")).
+			Padding(0, 1)
 )
 
 // UI represents the tool's Bubble Tea model and methods
 type UI struct {
 	content       string
+	reasoning     string
 	err           error
 	renderer      *glamour.TermRenderer
 	client        *ollama.Client
@@ -28,6 +46,7 @@ type UI struct {
 
 // Msg types for Bubble Tea
 type responseMsg string
+type reasoningMsg string
 type toolCallMsg []ollama.ToolCall
 type errorMsg error
 type doneMsg bool
@@ -72,6 +91,9 @@ func (u *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case responseMsg:
 		u.content += string(msg)
 		return u, u.waitForNextChunk()
+	case reasoningMsg:
+		u.reasoning += string(msg)
+		return u, u.waitForNextChunk()
 	case toolCallMsg:
 		u.toolWasCalled = true
 		for _, tc := range msg {
@@ -104,41 +126,61 @@ func (u *UI) View() string {
 		return fmt.Sprintf("\nError: %v\n", u.err)
 	}
 
-	if u.content == "" {
+	var out string
+	if u.content == "" && u.reasoning == "" {
 		status := " Thinking..."
 		if u.toolWasCalled {
 			status = " Preparing command..."
 		}
-		return status
+		out = status
+	} else {
+		displayContent := u.content
+		if u.reasoning != "" {
+			displayContent = "_Thinking..._\n" + u.reasoning + "\n\n---\n\n" + u.content
+		}
+
+		if u.renderer == nil {
+			w := u.width
+			if w == 0 {
+				w = 80
+			}
+
+			style := os.Getenv("AI_STYLE")
+			if style == "" {
+				style = os.Getenv("GLAMOUR_STYLE")
+			}
+
+			var styleOpt glamour.TermRendererOption
+			if style != "" && style != "auto" {
+				styleOpt = glamour.WithStandardStyle(style)
+			} else {
+				styleOpt = glamour.WithAutoStyle()
+			}
+
+			u.renderer, _ = glamour.NewTermRenderer(
+				styleOpt,
+				glamour.WithWordWrap(w-2),
+			)
+		}
+
+		rendered, _ := u.renderer.Render(displayContent)
+		out = rendered
 	}
 
-	if u.renderer == nil {
-		w := u.width
-		if w == 0 {
-			w = 80
-		}
-
-		style := os.Getenv("AI_STYLE")
-		if style == "" {
-			style = os.Getenv("GLAMOUR_STYLE")
-		}
-
-		var styleOpt glamour.TermRendererOption
-		if style != "" && style != "auto" {
-			styleOpt = glamour.WithStandardStyle(style)
-		} else {
-			styleOpt = glamour.WithAutoStyle()
-		}
-
-		u.renderer, _ = glamour.NewTermRenderer(
-			styleOpt,
-			glamour.WithWordWrap(w-2),
-		)
-	}
-
-	out, _ := u.renderer.Render(u.content)
 	if u.confirmCh != nil {
-		out += fmt.Sprintf("\n> Run command: `%s`? [y/N] ", u.confirmCmd)
+		choices := lipgloss.NewStyle().Foreground(lipgloss.Color("240")).Render("[y/N]")
+		prompt := fmt.Sprintf("⚡ %s%s\n\n%s ",
+			headerStyle.Render("Run command:"),
+			infoStyle.Render(u.confirmCmd),
+			choices)
+
+		promptView := "\n" + borderStyle.Render(prompt) + "\n"
+		if out == " Preparing command..." || out == " Thinking..." {
+			// If we're just showing status, replace it or prepend it
+			out = promptView
+		} else {
+			out += promptView
+		}
 	}
 	return out
 }
@@ -162,6 +204,10 @@ func (u *UI) RunInteractiveSession() {
 			if msg.Error != nil {
 				u.chunkChan <- errorMsg(msg.Error)
 				return
+			}
+			if msg.ReasoningContent != "" {
+				assistantMsg.ReasoningContent += msg.ReasoningContent
+				u.chunkChan <- reasoningMsg(msg.ReasoningContent)
 			}
 			if msg.Content != "" {
 				assistantMsg.Content += msg.Content
@@ -193,13 +239,13 @@ func (u *UI) RunInteractiveSession() {
 						u.chunkChan <- confirmationMsg{Command: args.Command, Ch: ch}
 						shouldRun = <-ch
 						if !shouldRun {
-							u.chunkChan <- responseMsg(fmt.Sprintf("\n> Skip: `%s`...\n", args.Command))
+							u.chunkChan <- responseMsg("\n" + skipStyle.Render(fmt.Sprintf("Skip: %s", args.Command)) + "\n")
 						}
 					}
 
 					var output string
 					if shouldRun {
-						u.chunkChan <- responseMsg(fmt.Sprintf("\n> Running: `%s`...\n", args.Command))
+						u.chunkChan <- responseMsg("\n" + headerStyle.Render("Running:") + infoStyle.Render(args.Command) + "\n")
 						output, _ = RunCommand(args.Command)
 						if output != "" {
 							u.chunkChan <- responseMsg(fmt.Sprintf("```\n%s\n```\n", strings.TrimSpace(output)))
@@ -218,7 +264,7 @@ func (u *UI) RunInteractiveSession() {
 					Query string `json:"query"`
 				}
 				if err := ollama.ParseToolArguments(tc.Function.Arguments, &args); err == nil {
-					u.chunkChan <- responseMsg(fmt.Sprintf("\n> Searching: `%s`...\n", args.Query))
+					u.chunkChan <- responseMsg("\n" + headerStyle.Render("Searching:") + infoStyle.Render(args.Query) + "\n")
 					output, err := BraveSearch(args.Query)
 					if err != nil {
 						output = fmt.Sprintf("Error: %v", err)
@@ -238,7 +284,7 @@ func (u *UI) RunInteractiveSession() {
 					Action string `json:"action"`
 				}
 				if err := ollama.ParseToolArguments(tc.Function.Arguments, &args); err == nil {
-					u.chunkChan <- responseMsg(fmt.Sprintf("\n> Browsing: %s (%s)...\n", args.URL, args.Action))
+					u.chunkChan <- responseMsg("\n" + headerStyle.Render("Browsing:") + infoStyle.Render(fmt.Sprintf("%s (%s)", args.URL, args.Action)) + "\n")
 					output, err := ChromeCDP(args.URL, args.Action)
 					if err != nil {
 						output = fmt.Sprintf("Error: %v", err)

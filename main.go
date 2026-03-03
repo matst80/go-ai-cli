@@ -122,11 +122,11 @@ func main() {
 		})
 	}
 
-	systemPrompt := fmt.Sprintf("You are a terminal expert on %s. Be concise, prefer one-liners. Use markdown for code blocks and formatting. Use run_command to explore local files and run tests. ", runtime.GOOS)
-	if os.Getenv("BRAVE_API_KEY") != "" {
-		systemPrompt += "Use web_search to find information on the web. "
-	}
-	systemPrompt += "Use chrome_cdp to control the browser."
+	systemPrompt := fmt.Sprintf("You are a terminal expert on %s. Use markdown for code blocks and formatting. Use tools if needed. ", runtime.GOOS)
+	// if os.Getenv("BRAVE_API_KEY") != "" {
+	// 	systemPrompt += "Use web_search to find information on the web. "
+	// }
+	// systemPrompt += "Use chrome_cdp to control the browser."
 
 	ollamaModel := os.Getenv("OLLAMA_MODEL")
 	if ollamaModel == "" {
@@ -147,6 +147,7 @@ func main() {
 		},
 		Tools:  tools,
 		Stream: true,
+		Think:  true,
 	}
 
 	if !isatty.IsTerminal(os.Stdout.Fd()) {

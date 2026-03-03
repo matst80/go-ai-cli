@@ -73,7 +73,7 @@ func BraveSearch(query string) (string, error) {
 
 // ChromeCDP performs a browser action using Chrome DevTools Protocol
 func ChromeCDP(url, action string) (string, error) {
-	ctx, cancelTab, err := getCDPContext()
+	tabCtx, cancelTab, err := getCDPContext()
 	if err != nil {
 		return "", fmt.Errorf("failed to get CDP context: %v", err)
 	}
@@ -84,17 +84,22 @@ func ChromeCDP(url, action string) (string, error) {
 		defer cancelTab()
 	}
 
+	// Create a timeout for the entire browser action
+	timeout := 30 * time.Second
+	runCtx, cancelRun := context.WithTimeout(tabCtx, timeout)
+	defer cancelRun()
+
 	var res string
 	switch action {
 	case "scrape":
-		err = chromedp.Run(ctx,
+		err = chromedp.Run(runCtx,
 			chromedp.Navigate(url),
 			chromedp.WaitVisible("body", chromedp.ByQuery),
 			chromedp.Evaluate(`document.body.innerText`, &res),
 		)
 	case "screenshot":
 		var buf []byte
-		err = chromedp.Run(ctx,
+		err = chromedp.Run(runCtx,
 			chromedp.Navigate(url),
 			chromedp.WaitVisible("body", chromedp.ByQuery),
 			chromedp.FullScreenshot(&buf, 100),
@@ -107,7 +112,9 @@ func ChromeCDP(url, action string) (string, error) {
 			res = fmt.Sprintf("Screenshot saved to %s", filename)
 		}
 	case "navigate":
-		err = chromedp.Run(ctx,
+		// For navigate, we use the tabCtx directly to avoid any timeout-related closing,
+		// and we don't call cancelTab in the defer above.
+		err = chromedp.Run(tabCtx,
 			chromedp.Navigate(url),
 		)
 		res = fmt.Sprintf("Navigated to %s", url)
@@ -194,7 +201,19 @@ func getCDPContext() (context.Context, context.CancelFunc, error) {
 		}
 	}
 
-	// 3. Create the actual tab context
+	// 3. Try to reuse an existing page tab instead of creating a new one
+	targets, err := chromedp.Targets(allocatorCtx)
+	if err == nil {
+		for _, t := range targets {
+			if t.Type == "page" && !strings.Contains(t.URL, "devtools://") {
+				// Found an existing tab! Attach to it.
+				ctx, cancelTab := chromedp.NewContext(allocatorCtx, chromedp.WithTargetID(t.TargetID))
+				return ctx, cancelTab, nil
+			}
+		}
+	}
+
+	// 4. Create a new tab if no existing page found
 	ctx, cancelTab := chromedp.NewContext(allocatorCtx)
 	return ctx, cancelTab, nil
 }

@@ -22,7 +22,17 @@ func RunSimpleSession(client *ollama.Client, req ollama.ChatRequest) (string, er
 			if msg.Error != nil {
 				return "", msg.Error
 			}
+			if msg.ReasoningContent != "" {
+				if assistantMsg.ReasoningContent == "" {
+					fmt.Println("_Thinking..._")
+				}
+				assistantMsg.ReasoningContent += msg.ReasoningContent
+				fmt.Print(msg.ReasoningContent)
+			}
 			if msg.Content != "" {
+				if assistantMsg.Content == "" && assistantMsg.ReasoningContent != "" {
+					fmt.Print("\n\n---\n\n")
+				}
 				assistantMsg.Content += msg.Content
 				fmt.Print(msg.Content)
 			}

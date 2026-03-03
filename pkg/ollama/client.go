@@ -33,24 +33,45 @@ func LogDebug(format string, v ...interface{}) {
 
 // StreamResponse represents possible messages during streaming
 type StreamResponse struct {
-	Content   string
-	ToolCalls []ToolCall
-	Error     error
-	Done      bool
+	Content          string
+	ReasoningContent string
+	ToolCalls        []ToolCall
+	Error            error
+	Done             bool
 }
 
 // StreamWorker handles the streaming request to Ollama
 func (c *Client) StreamWorker(req ChatRequest, ch chan StreamResponse) {
 	LogDebug("--- NEW REQUEST ---")
-	jsonData, _ := json.Marshal(req)
-	LogDebug("Payload: %s", string(jsonData))
+	jsonData, err := json.Marshal(req)
+	if err != nil {
+		LogDebug("Marshal error: %v", err)
+		ch <- StreamResponse{Error: fmt.Errorf("failed to marshal request: %w", err)}
+		return
+	}
+	LogDebug("Payload (%d bytes): %s", len(jsonData), string(jsonData))
 
 	resp, err := http.Post(c.URL, "application/json", bytes.NewBuffer(jsonData))
 	if err != nil {
+		LogDebug("Post error: %v", err)
 		ch <- StreamResponse{Error: err}
 		return
 	}
 	defer resp.Body.Close()
+
+	LogDebug("Response Status: %s", resp.Status)
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		LogDebug("Error Body: %s", string(body))
+		var chatResp ChatResponse
+		if err := json.Unmarshal(body, &chatResp); err == nil && chatResp.Error != "" {
+			ch <- StreamResponse{Error: fmt.Errorf("ollama error (status %d): %s", resp.StatusCode, chatResp.Error)}
+		} else {
+			ch <- StreamResponse{Error: fmt.Errorf("ollama request failed with status %d: %s", resp.StatusCode, string(body))}
+		}
+		return
+	}
 
 	reader := bufio.NewReader(resp.Body)
 	for {
@@ -59,6 +80,7 @@ func (c *Client) StreamWorker(req ChatRequest, ch chan StreamResponse) {
 			if err == io.EOF {
 				break
 			}
+			LogDebug("Read error: %v", err)
 			ch <- StreamResponse{Error: err}
 			return
 		}
@@ -71,12 +93,17 @@ func (c *Client) StreamWorker(req ChatRequest, ch chan StreamResponse) {
 		}
 
 		if chatResp.Error != "" {
+			LogDebug("Ollama error field: %s", chatResp.Error)
 			ch <- StreamResponse{Error: fmt.Errorf("ollama error: %s", chatResp.Error)}
 			return
 		}
 
 		if len(chatResp.Message.ToolCalls) > 0 {
 			ch <- StreamResponse{ToolCalls: chatResp.Message.ToolCalls}
+		}
+
+		if chatResp.Message.ReasoningContent != "" {
+			ch <- StreamResponse{ReasoningContent: chatResp.Message.ReasoningContent}
 		}
 
 		if chatResp.Message.Content != "" {

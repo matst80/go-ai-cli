@@ -7,10 +7,11 @@ import (
 
 // Message represents a chat message in the Ollama API
 type Message struct {
-	Role       string     `json:"role"`
-	Content    string     `json:"content"`
-	ToolCalls  []ToolCall `json:"tool_calls,omitempty"`
-	ToolCallID string     `json:"tool_call_id,omitempty"`
+	Role             string     `json:"role"`
+	Content          string     `json:"content"`
+	ReasoningContent string     `json:"reasoning_content,omitempty"`
+	ToolCalls        []ToolCall `json:"tool_calls,omitempty"`
+	ToolCallID       string     `json:"tool_call_id,omitempty"`
 }
 
 // Tool represents a tool that the AI can use
@@ -41,6 +42,7 @@ type ChatRequest struct {
 	Model    string    `json:"model"`
 	Messages []Message `json:"messages"`
 	Stream   bool      `json:"stream"`
+	Think    bool      `json:"think,omitempty"`
 	Tools    []Tool    `json:"tools,omitempty"`
 }
 
@@ -61,7 +63,11 @@ func ParseToolArguments(data json.RawMessage, target interface{}) error {
 	// Try unmarshal as string then as JSON (if it's a stringified JSON)
 	var s string
 	if err := json.Unmarshal(data, &s); err == nil {
-		return json.Unmarshal([]byte(s), target)
+		if err := json.Unmarshal([]byte(s), target); err == nil {
+			return nil
+		} else {
+			return fmt.Errorf("could not parse stringified tool arguments: %w, raw: %s", err, string(s))
+		}
 	}
-	return fmt.Errorf("could not parse tool arguments")
+	return fmt.Errorf("could not parse tool arguments: %s", string(data))
 }

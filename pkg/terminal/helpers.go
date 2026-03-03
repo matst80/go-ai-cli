@@ -1,6 +1,7 @@
 package terminal
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
@@ -11,10 +12,16 @@ import (
 	"github.com/mattn/go-isatty"
 )
 
-// RunCommand executes a shell command and returns output
+// RunCommand executes a shell command and returns output with a 60-second timeout
 func RunCommand(command string) (string, error) {
-	cmd := exec.Command("sh", "-c", command)
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, "sh", "-c", command)
 	output, err := cmd.CombinedOutput()
+	if ctx.Err() == context.DeadlineExceeded {
+		return string(output) + "\nError: Command timed out after 60s", ctx.Err()
+	}
 	return string(output), err
 }
 
