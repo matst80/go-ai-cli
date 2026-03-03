@@ -22,6 +22,8 @@ type UI struct {
 	preparedCmd   string
 	toolWasCalled bool
 	chunkChan     chan tea.Msg
+	confirmCh     chan bool
+	confirmCmd    string
 }
 
 // Msg types for Bubble Tea
@@ -29,6 +31,10 @@ type responseMsg string
 type toolCallMsg []ollama.ToolCall
 type errorMsg error
 type doneMsg bool
+type confirmationMsg struct {
+	Command string
+	Ch      chan bool
+}
 
 // NewUI creates a new UI model
 func NewUI(client *ollama.Client, req ollama.ChatRequest) *UI {
@@ -49,6 +55,17 @@ func (u *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.Type == tea.KeyCtrlC {
 			return u, tea.Quit
 		}
+		if u.confirmCh != nil {
+			if msg.String() == "y" || msg.String() == "Y" {
+				u.confirmCh <- true
+				u.confirmCh = nil
+				u.confirmCmd = ""
+			} else if msg.String() == "n" || msg.String() == "N" {
+				u.confirmCh <- false
+				u.confirmCh = nil
+				u.confirmCmd = ""
+			}
+		}
 	case tea.WindowSizeMsg:
 		u.width = msg.Width
 		u.renderer = nil // Recreate renderer on size change
@@ -67,6 +84,10 @@ func (u *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			}
 		}
+		return u, u.waitForNextChunk()
+	case confirmationMsg:
+		u.confirmCh = msg.Ch
+		u.confirmCmd = msg.Command
 		return u, u.waitForNextChunk()
 	case errorMsg:
 		u.err = msg
@@ -116,6 +137,9 @@ func (u *UI) View() string {
 	}
 
 	out, _ := u.renderer.Render(u.content)
+	if u.confirmCh != nil {
+		out += fmt.Sprintf("\n> Run command: `%s`? [y/N] ", u.confirmCmd)
+	}
 	return out
 }
 
@@ -163,10 +187,23 @@ func (u *UI) RunInteractiveSession() {
 					Command string `json:"command"`
 				}
 				if err := ollama.ParseToolArguments(tc.Function.Arguments, &args); err == nil {
-					u.chunkChan <- responseMsg(fmt.Sprintf("\n> Running: `%s`...\n", args.Command))
-					output, _ := RunCommand(args.Command)
-					if output != "" {
-						u.chunkChan <- responseMsg(fmt.Sprintf("```\n%s\n```\n", strings.TrimSpace(output)))
+					shouldRun := os.Getenv("AI_YOLO") == "true"
+					if !shouldRun {
+						ch := make(chan bool)
+						u.chunkChan <- confirmationMsg{Command: args.Command, Ch: ch}
+						shouldRun = <-ch
+						if !shouldRun {
+							u.chunkChan <- responseMsg(fmt.Sprintf("\n> Skip: `%s`...\n", args.Command))
+						}
+					}
+
+					var output string
+					if shouldRun {
+						u.chunkChan <- responseMsg(fmt.Sprintf("\n> Running: `%s`...\n", args.Command))
+						output, _ = RunCommand(args.Command)
+						if output != "" {
+							u.chunkChan <- responseMsg(fmt.Sprintf("```\n%s\n```\n", strings.TrimSpace(output)))
+						}
 					}
 
 					toolResponses = append(toolResponses, ollama.Message{

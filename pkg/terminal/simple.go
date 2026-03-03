@@ -2,6 +2,7 @@ package terminal
 
 import (
 	"fmt"
+	"os"
 	"strings"
 
 	"github.com/matst80/go-ai-cli/pkg/ollama"
@@ -54,16 +55,25 @@ func RunSimpleSession(client *ollama.Client, req ollama.ChatRequest) (string, er
 					Command string `json:"command"`
 				}
 				if err := ollama.ParseToolArguments(tc.Function.Arguments, &args); err == nil {
-					fmt.Printf("\n> Running: %s...\n", args.Command)
-					output, _ := RunCommand(args.Command)
-					if output != "" {
-						fmt.Printf("```\n%s\n```\n", strings.TrimSpace(output))
+					if os.Getenv("AI_YOLO") == "true" {
+						fmt.Printf("\n> Running: %s...\n", args.Command)
+						output, _ := RunCommand(args.Command)
+						if output != "" {
+							fmt.Printf("```\n%s\n```\n", strings.TrimSpace(output))
+						}
+						toolResponses = append(toolResponses, ollama.Message{
+							Role:       "tool",
+							ToolCallID: tc.ID,
+							Content:    output,
+						})
+					} else {
+						fmt.Printf("\n> Skip: %s (use --yolo to run in non-interactive mode)\n", args.Command)
+						toolResponses = append(toolResponses, ollama.Message{
+							Role:       "tool",
+							ToolCallID: tc.ID,
+							Content:    "Skipped: non-interactive mode without --yolo",
+						})
 					}
-					toolResponses = append(toolResponses, ollama.Message{
-						Role:       "tool",
-						ToolCallID: tc.ID,
-						Content:    output,
-					})
 					hasRunCommand = true
 				}
 			case "web_search":

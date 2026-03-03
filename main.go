@@ -16,7 +16,12 @@ import (
 func main() {
 	cdpFlag := flag.String("cdp", "", "Remote CDP URL or port (e.g. 9222 or localhost:9222)")
 	styleFlag := flag.String("style", "", "Output style (dark, light, or auto)")
+	yoloFlag := flag.Bool("yolo", false, "Run all commands without confirmation")
 	flag.Parse()
+
+	if *yoloFlag {
+		os.Setenv("AI_YOLO", "true")
+	}
 
 	if *styleFlag != "" {
 		os.Setenv("AI_STYLE", *styleFlag)
@@ -28,7 +33,7 @@ func main() {
 
 	prompt := strings.Join(flag.Args(), " ")
 	if prompt == "" {
-		fmt.Println("Usage: ai [--cdp <url/port>] <prompt>")
+		fmt.Println("Usage: ai [--cdp <url/port>] [--style <style>] [--yolo] <prompt>")
 		os.Exit(1)
 	}
 	ollamaURL := os.Getenv("OLLAMA_URL")

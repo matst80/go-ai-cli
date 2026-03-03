@@ -48,18 +48,32 @@ The tool can be configured using the following environment variables:
 | `BRAVE_API_KEY` | API key for Brave Search. Required to enable the `web_search` tool. | (None) |
 | `CHROME_REMOTE_URL` | URL or port for an existing Chrome instance to control via CDP (e.g., `9222` or `localhost:9222`). Can also be set via the `--cdp` flag. | (None, starts managed instance) |
 | `AI_STYLE` | Set the output theme (e.g., `dark`, `light`, `auto`). | `auto` |
+| `AI_YOLO` | Run all commands without confirmation. | `false` |
 | `GLAMOUR_STYLE` | Fallback environment variable for the output theme. Compatible with `glow`. | (None) |
 
 Example:
 ```bash
 export OLLAMA_URL="http://10.10.10.108:11434/api/chat"
 export BRAVE_API_KEY="your_api_key_here"
+export AI_YOLO=true
 ```
 
 ## Usage
 
 ```bash
 ./ai "How do I list files by size in the current directory?"
+```
+
+### Confirmation and YOLO
+
+By default, any `run_command` tool execution will prompt for confirmation. You can bypass this using the `--yolo` flag or `AI_YOLO=true` environment variable.
+
+```bash
+# Ask for confirmation (default)
+./ai "run tests for this project"
+
+# Run everything immediately
+./ai --yolo "run tests for this project"
 ```
 
 ### Styling
