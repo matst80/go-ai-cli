@@ -43,18 +43,13 @@ func Load() (*Config, error) {
 
 	if cfg.SystemPrompt == "" {
 		cfg.SystemPrompt = fmt.Sprintf(`You are a terminal expert for %s.
-Please respond with markdown, to name a code block suffix it with :filename.html 
+Please respond with markdown.
 
 To save a code block to a specific file path, use the format:
 %[2]slanguage:path/to/file.ext
 content
 %[2]s
-
-To suggest a shell command for the user to run, use:
-%[2]sbash
-command
-%[2]s
-(Bash blocks are also saved to temporary files).`, runtime.GOOS, "```")
+`, runtime.GOOS, "```")
 	}
 
 	// Environment variable overrides

@@ -11,8 +11,17 @@ import (
 	"github.com/matst80/go-ai-cli/pkg/ollama"
 	"github.com/matst80/go-ai-cli/pkg/terminal"
 	"github.com/mattn/go-isatty"
-	"k8s.io/utils/strings/slices"
 )
+
+func filter[T any](s []T, predicate func(T) bool) []T {
+	result := make([]T, 0, len(s)) // Pre-allocate for efficiency
+	for _, v := range s {
+		if predicate(v) {
+			result = append(result, v)
+		}
+	}
+	return result
+}
 
 func main() {
 	cfg, err := config.Load()
@@ -183,7 +192,7 @@ func main() {
 		savedFiles := finalModel.GetSavedFiles()
 		content := finalModel.GetContent()
 
-		savedTempFiles := slices.Filter(savedFiles, func(f terminal.SavedFile) bool {
+		savedTempFiles := filter(savedFiles, func(f terminal.SavedFile) bool {
 			return f.IsTemp
 		})
 

@@ -151,6 +151,13 @@ func (sh *StreamHandler) completeBlock() {
 
 	isTemp := false
 	if filename == "" {
+		// Don't save one-liners to temp files
+		if !strings.Contains(content, "\n") {
+			if isCmd && sh.commandSuggested != nil {
+				sh.commandSuggested(content)
+			}
+			return
+		}
 		filename = sh.generateTempFile(lang)
 		isTemp = true
 	}
