@@ -37,8 +37,27 @@ func main() {
 	}
 
 	if prompt == "" && len(images) == 0 {
-		fmt.Println("Usage: ai [--cdp <url/port>] [--style <style>] [--yolo] [--thinking] [--url <url>] [--model <model>] <prompt> [files...]")
-		os.Exit(1)
+		if len(os.Args) > 1 && (os.Args[1] == "-h" || os.Args[1] == "--help") {
+			fmt.Println("Usage: ai [--cdp <url/port>] [--style <style>] [--yolo] [--thinking] [--url <url>] [--model <model>] <prompt> [files...]")
+			os.Exit(0)
+		}
+
+		terminal.InitClipboard()
+		m := terminal.NewInputModel()
+		p := tea.NewProgram(m)
+		result, err := p.Run()
+		if err != nil {
+			fmt.Printf("Error running interactive input: %v\n", err)
+			os.Exit(1)
+		}
+
+		inputModel := result.(terminal.InputModel)
+		if inputModel.WasAborted() || (inputModel.Value() == "" && len(inputModel.AttachedImages()) == 0) {
+			os.Exit(0)
+		}
+
+		prompt = inputModel.Value()
+		images = inputModel.AttachedImages()
 	}
 
 	client := ollama.NewClient(cfg.URL)
@@ -214,9 +233,6 @@ func main() {
 			if _, err := vp.Run(); err != nil {
 				fmt.Printf("Error running file viewer: %v\n", err)
 			}
-		} else if content != "" {
-			// Just show content regular if no files
-			fmt.Print("\n" + finalModel.View())
 		}
 
 		// cmd := finalModel.GetPreparedCmd()
