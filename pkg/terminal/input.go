@@ -50,7 +50,7 @@ func (m InputModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.Quitting = true
 			m.Aborted = true
 			return m, tea.Quit
-		case tea.KeyCtrlD, tea.KeyCtrlS:
+		case tea.KeyCtrlD, tea.KeyCtrlS, tea.KeyCtrlCaret:
 			m.Quitting = true
 			return m, tea.Quit
 		case tea.KeyCtrlV:
@@ -65,6 +65,7 @@ func (m InputModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return m, nil
 		}
+
 	case tea.WindowSizeMsg:
 		m.Textarea.SetWidth(msg.Width - 4)
 	}
@@ -89,7 +90,7 @@ func (m InputModel) View() string {
 	return fmt.Sprintf(
 		"Type your prompt:\n\n%s\n\n%s%s\n",
 		m.Textarea.View(),
-		helpStyle.Render("ctrl+s/ctrl+d to submit • esc/ctrl+c to cancel • ctrl+v to paste text/image"),
+		helpStyle.Render("ctrl+enter to submit • esc/ctrl+c to cancel • ctrl+v to paste text/image"),
 		helpStyle.Render(imgInfo),
 	)
 }

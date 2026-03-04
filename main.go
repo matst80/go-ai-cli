@@ -233,9 +233,6 @@ func main() {
 			if _, err := vp.Run(); err != nil {
 				fmt.Printf("Error running file viewer: %v\n", err)
 			}
-		} else if content != "" {
-			// Just show content regular if no files
-			fmt.Print("\n" + finalModel.View())
 		}
 
 		// cmd := finalModel.GetPreparedCmd()
