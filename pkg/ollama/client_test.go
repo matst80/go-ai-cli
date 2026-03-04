@@ -7,6 +7,8 @@ import (
 	"net/http/httptest"
 	"testing"
 	"time"
+
+	"github.com/matst80/go-ai-cli/pkg/config"
 )
 
 func TestClient_StreamWorker(t *testing.T) {
@@ -121,10 +123,8 @@ func TestParseToolArguments(t *testing.T) {
 }
 func TestChatRequest_Marshal(t *testing.T) {
 	req := ChatRequest{
-		Model: "test",
-		Options: map[string]interface{}{
-			"repeat_penalty": 1.5,
-		},
+		Model:   "test",
+		Options: config.ModelOptions{RepeatPenalty: 1.5},
 	}
 	data, err := json.Marshal(req)
 	if err != nil {

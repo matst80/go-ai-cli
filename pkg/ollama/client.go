@@ -41,6 +41,47 @@ type StreamResponse struct {
 	Done             bool
 }
 
+// GenerateResponse handles a non-streaming request to Ollama and returns the content
+func (c *Client) GenerateResponse(ctx context.Context, req ChatRequest) (string, error) {
+	req.Stream = false
+	jsonData, err := json.Marshal(req)
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal request: %w", err)
+	}
+
+	httpReq, err := http.NewRequestWithContext(ctx, "POST", c.URL, bytes.NewBuffer(jsonData))
+	if err != nil {
+		return "", err
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+
+	resp, err := http.DefaultClient.Do(httpReq)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", err
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("ollama request failed with status %d: %s", resp.StatusCode, string(body))
+	}
+
+	var chatResp ChatResponse
+	if err := json.Unmarshal(body, &chatResp); err != nil {
+		return "", fmt.Errorf("failed to unmarshal response: %w", err)
+	}
+
+	if chatResp.Error != "" {
+		return "", fmt.Errorf("ollama error: %s", chatResp.Error)
+	}
+
+	return chatResp.Message.Content, nil
+}
+
 // StreamWorker handles the streaming request to Ollama
 func (c *Client) StreamWorker(ctx context.Context, req ChatRequest, ch chan StreamResponse) {
 	defer close(ch)
