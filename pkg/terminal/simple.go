@@ -10,7 +10,7 @@ import (
 )
 
 // RunSimpleSession provides a non-interactive output for non-TTY or fallback
-func RunSimpleSession(client *ollama.Client, req ollama.ChatRequest) (string, error) {
+func RunSimpleSession(client *ollama.Client, req ollama.ChatRequest) (string, []ollama.Message, error) {
 	var preparedCmd string
 	for {
 		workerCh := make(chan ollama.StreamResponse)
@@ -83,7 +83,7 @@ func RunSimpleSession(client *ollama.Client, req ollama.ChatRequest) (string, er
 
 		if !hasRunCommand {
 			fmt.Println()
-			return preparedCmd, nil
+			return preparedCmd, req.Messages, nil
 		}
 
 		// Append tool responses and loop
