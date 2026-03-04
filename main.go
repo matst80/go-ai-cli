@@ -85,20 +85,29 @@ func main() {
 			Type: "function",
 			Function: ollama.Function{
 				Name:        "browser",
-				Description: "Control local browser",
+				Description: "Control local browser and interact with pages",
 				Parameters: map[string]interface{}{
 					"type": "object",
 					"properties": map[string]interface{}{
 						"url": map[string]interface{}{
 							"type":        "string",
-							"description": "The URL to visit.",
+							"description": "The URL to visit (optional for actions on current page).",
 						},
 						"action": map[string]interface{}{
-							"type": "string",
-							"enum": []string{"scrape", "screenshot", "navigate"},
+							"type":        "string",
+							"enum":        []string{"scrape", "screenshot", "navigate", "click", "type", "scroll", "evaluate", "view_ax_tree"},
+							"description": "The action to perform. 'view_ax_tree' returns interactive elements.",
+						},
+						"selector": map[string]interface{}{
+							"type":        "string",
+							"description": "CSS selector for click, type, or scroll.",
+						},
+						"value": map[string]interface{}{
+							"type":        "string",
+							"description": "Text to type or JS to evaluate.",
 						},
 					},
-					"required": []string{"url", "action"},
+					"required": []string{"action"},
 				},
 			},
 		},

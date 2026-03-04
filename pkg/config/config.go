@@ -160,7 +160,7 @@ content
 		cfg.URL = "http://localhost:11434/api/chat"
 	}
 	if cfg.Model == "" {
-		cfg.Model = "ministral-3:latest"
+		cfg.Model = "qwen3.5:4b"
 	}
 	if cfg.Style == "" {
 		cfg.Style = "auto"

@@ -71,15 +71,17 @@ func (e *ToolExecutor) HandleToolCall(ctx context.Context, tc ollama.ToolCall, u
 
 	case "browser":
 		var args struct {
-			URL    string `json:"url"`
-			Action string `json:"action"`
+			URL      string `json:"url"`
+			Action   string `json:"action"`
+			Selector string `json:"selector"`
+			Value    string `json:"value"`
 		}
 		if err := ollama.ParseToolArguments(tc.Function.Arguments, &args); err != nil {
 			return "", err
 		}
 
 		ui.LogActivity(fmt.Sprintf("**Browsing:** `%s` *(%s)*", args.URL, args.Action))
-		output, err := ChromeCDP(args.URL, args.Action)
+		output, err := ChromeCDP(args.URL, args.Action, args.Selector, args.Value)
 		if err != nil {
 			output = fmt.Sprintf("Error: %v", err)
 		}

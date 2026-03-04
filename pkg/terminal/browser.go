@@ -89,15 +89,16 @@ func BraveSearch(query, country string, count, offset int) (string, error) {
 }
 
 // ChromeCDP performs a browser action using Chrome DevTools Protocol
-func ChromeCDP(url, action string) (string, error) {
+func ChromeCDP(url, action, selector, value string) (string, error) {
 	tabCtx, cancelTab, err := getCDPContext()
 	if err != nil {
 		return "", fmt.Errorf("failed to get CDP context: %v", err)
 	}
 
 	// For navigate, we want to leak the tab so it stays open in the browser.
-	// For other actions, we close it immediately.
-	if action != "navigate" {
+	// For other actions that don't transition the page, we might want to keep it open too
+	// but for now let's stick to the existing leak logic for navigate.
+	if action != "navigate" && action != "click" && action != "type" {
 		defer cancelTab()
 	}
 
@@ -107,36 +108,96 @@ func ChromeCDP(url, action string) (string, error) {
 	defer cancelRun()
 
 	var res string
+	var actions []chromedp.Action
+
 	switch action {
 	case "scrape":
-		err = chromedp.Run(runCtx,
-			chromedp.Navigate(url),
+		if url != "" {
+			actions = append(actions, chromedp.Navigate(url))
+		}
+		actions = append(actions,
 			chromedp.WaitVisible("body", chromedp.ByQuery),
 			chromedp.Evaluate(`document.body.innerText`, &res),
 		)
 	case "screenshot":
+		if url != "" {
+			actions = append(actions, chromedp.Navigate(url))
+		}
 		var buf []byte
-		err = chromedp.Run(runCtx,
-			chromedp.Navigate(url),
+		actions = append(actions,
 			chromedp.WaitVisible("body", chromedp.ByQuery),
 			chromedp.FullScreenshot(&buf, 100),
 		)
+		err = chromedp.Run(runCtx, actions...)
 		if err == nil {
 			filename := fmt.Sprintf("screenshot_%d.png", time.Now().Unix())
 			if err := os.WriteFile(filename, buf, 0644); err != nil {
 				return "", err
 			}
-			res = fmt.Sprintf("Screenshot saved to %s", filename)
+			return fmt.Sprintf("Screenshot saved to %s", filename), nil
 		}
 	case "navigate":
-		// For navigate, we use the tabCtx directly to avoid any timeout-related closing,
-		// and we don't call cancelTab in the defer above.
-		err = chromedp.Run(tabCtx,
-			chromedp.Navigate(url),
+		err = chromedp.Run(tabCtx, chromedp.Navigate(url))
+		return fmt.Sprintf("Navigated to %s", url), err
+	case "click":
+		actions = append(actions,
+			chromedp.WaitVisible(selector, chromedp.ByQuery),
+			chromedp.Click(selector, chromedp.ByQuery),
 		)
-		res = fmt.Sprintf("Navigated to %s", url)
+		res = fmt.Sprintf("Clicked %s", selector)
+	case "type":
+		actions = append(actions,
+			chromedp.WaitVisible(selector, chromedp.ByQuery),
+			chromedp.SendKeys(selector, value, chromedp.ByQuery),
+		)
+		res = fmt.Sprintf("Typed into %s", selector)
+	case "scroll":
+		actions = append(actions,
+			chromedp.ScrollIntoView(selector, chromedp.ByQuery),
+		)
+		res = fmt.Sprintf("Scrolled to %s", selector)
+	case "evaluate":
+		actions = append(actions,
+			chromedp.Evaluate(value, &res),
+		)
+	case "view_ax_tree":
+		// Get simplified AX tree for the agent to understand the page structure
+		actions = append(actions,
+			chromedp.Evaluate(`
+				(function() {
+					function getRole(el) {
+						if (el.getAttribute('role')) return el.getAttribute('role');
+						if (el.tagName === 'BUTTON') return 'button';
+						if (el.tagName === 'A') return 'link';
+						if (el.tagName === 'INPUT') return el.type || 'text';
+						if (el.tagName === 'SELECT') return 'combobox';
+						if (el.tagName === 'TEXTAREA') return 'textbox';
+						if (el.tagName === 'H1' || el.tagName === 'H2' || el.tagName === 'H3' || el.tagName === 'H4' || el.tagName === 'H5' || el.tagName === 'H6') return 'heading';
+						return null;
+					}
+					function describe(el) {
+						let role = getRole(el);
+						if (!role) return null;
+						let label = el.innerText || el.value || el.placeholder || el.getAttribute('aria-label') || '';
+						label = label.trim().substring(0, 50);
+						let selector = el.tagName.toLowerCase();
+						if (el.id) selector += '#' + el.id;
+						if (el.className) selector += '.' + el.className.split(/\s+/).join('.');
+						return { role, label, selector };
+					}
+					let interactive = Array.from(document.querySelectorAll('button, a, input, select, textarea, [role], h1, h2, h3, h4, h5, h6'))
+						.map(describe)
+						.filter(x => x !== null);
+					return JSON.stringify(interactive, null, 2);
+				})()
+			`, &res),
+		)
 	default:
 		return "", fmt.Errorf("unknown action: %s", action)
+	}
+
+	if err == nil {
+		err = chromedp.Run(runCtx, actions...)
 	}
 
 	if err != nil {
@@ -152,68 +213,68 @@ func ChromeCDP(url, action string) (string, error) {
 
 func getCDPContext() (context.Context, context.CancelFunc, error) {
 	wsURL := os.Getenv("CHROME_REMOTE_URL")
-	if wsURL != "" {
-		// If custom URL provided, don't try to start Chrome, just connect.
+	isRemote := wsURL != ""
+
+	if isRemote {
 		// Construct ws:// URL if only host/port provided.
 		if strings.HasPrefix(wsURL, "http://") {
 			wsURL = "ws://" + wsURL[7:]
 		} else if strings.HasPrefix(wsURL, "https://") {
 			wsURL = "wss://" + wsURL[8:]
 		}
-
 		if !strings.HasPrefix(wsURL, "ws://") && !strings.HasPrefix(wsURL, "wss://") {
 			if !strings.Contains(wsURL, ":") {
 				wsURL = "127.0.0.1:" + wsURL
 			}
 			wsURL = "ws://" + wsURL
 		}
-		allocatorCtx, _ := chromedp.NewRemoteAllocator(context.Background(), wsURL)
-		ctx, cancelTab := chromedp.NewContext(allocatorCtx)
-		return ctx, cancelTab, nil
+	} else {
+		wsURL = "ws://127.0.0.1:9222"
 	}
 
-	wsURL = "ws://127.0.0.1:9222"
-
-	// 1. Try to connect to existing Chrome
+	// 1. Setup allocator
 	allocatorCtx, _ := chromedp.NewRemoteAllocator(context.Background(), wsURL)
 
-	// Quick check
-	testCtx, cancel := chromedp.NewContext(allocatorCtx)
-	testCtx, timeout := context.WithTimeout(testCtx, 1*time.Second)
-	err := chromedp.Run(testCtx, chromedp.Navigate("about:blank"))
-	timeout()
-	cancel()
+	// 2. If local, try to connect/start Chrome
+	if !isRemote {
+		// Quick check if already running
+		testCtx, cancel := chromedp.NewContext(allocatorCtx)
+		testCtx, timeout := context.WithTimeout(testCtx, 1*time.Second)
+		err := chromedp.Run(testCtx, chromedp.Navigate("about:blank"))
+		timeout()
+		cancel()
 
-	if err != nil {
-		// 2. Start Chrome if not running
-		userDataDir := os.Getenv("HOME") + "/.go-ai-cli/chrome-profile"
-		_ = os.MkdirAll(userDataDir, 0755)
+		if err != nil {
+			// Start Chrome if not running
+			userDataDir := os.Getenv("HOME") + "/.go-ai-cli/chrome-profile"
+			_ = os.MkdirAll(userDataDir, 0755)
 
-		cmd := exec.Command("open", "-na", "Google Chrome", "--args",
-			"--remote-debugging-port=9222",
-			"--user-data-dir="+userDataDir,
-			"--no-first-run",
-			"--no-default-browser-check",
-		)
-		if err := cmd.Start(); err != nil {
-			return nil, nil, fmt.Errorf("failed to start Chrome: %v", err)
-		}
+			cmd := exec.Command("open", "-na", "Google Chrome", "--args",
+				"--remote-debugging-port=9222",
+				"--user-data-dir="+userDataDir,
+				"--no-first-run",
+				"--no-default-browser-check",
+			)
+			if err := cmd.Start(); err != nil {
+				return nil, nil, fmt.Errorf("failed to start Chrome: %v", err)
+			}
 
-		// Wait for it to be ready
-		for i := 0; i < 20; i++ {
-			time.Sleep(500 * time.Millisecond)
-			allocatorCtx, _ = chromedp.NewRemoteAllocator(context.Background(), wsURL)
-			testCtx, cancel = chromedp.NewContext(allocatorCtx)
-			testCtx, timeout = context.WithTimeout(testCtx, 1*time.Second)
-			if err := chromedp.Run(testCtx, chromedp.Navigate("about:blank")); err == nil {
+			// Wait for it to be ready
+			for i := 0; i < 20; i++ {
+				time.Sleep(500 * time.Millisecond)
+				allocatorCtx, _ = chromedp.NewRemoteAllocator(context.Background(), wsURL)
+				testCtx, cancel = chromedp.NewContext(allocatorCtx)
+				testCtx, timeout = context.WithTimeout(testCtx, 1*time.Second)
+				if err := chromedp.Run(testCtx, chromedp.Navigate("about:blank")); err == nil {
+					timeout()
+					cancel()
+					break
+				}
 				timeout()
 				cancel()
-				break
-			}
-			timeout()
-			cancel()
-			if i == 19 {
-				return nil, nil, fmt.Errorf("chrome failed to start on port 9222")
+				if i == 19 {
+					return nil, nil, fmt.Errorf("chrome failed to start on port 9222")
+				}
 			}
 		}
 	}
