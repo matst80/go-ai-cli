@@ -224,14 +224,10 @@ func main() {
 
 	ui := terminal.NewUI(client, reqBody)
 	p := tea.NewProgram(ui, tea.WithMouseCellMotion())
+	ui.SetSender(p.Send)
 
 	// Start logic loop
 	go ui.RunInteractiveSession()
-
-	// Initial trigger for Bubble Tea
-	go func() {
-		p.Send(<-ui.ChunkChan())
-	}()
 
 	res, err := p.Run()
 	if err != nil {
@@ -261,7 +257,7 @@ func main() {
 			}
 		} else if content != "" || finalModel.GetError() != nil {
 			// Just show content regular if no files or if there is an error to display
-			fmt.Print("\n" + finalModel.View())
+			fmt.Print("\n" + finalModel.FullView())
 		}
 
 		if cfg.SaveSession {

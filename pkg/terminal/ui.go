@@ -81,33 +81,39 @@ func escapeHTMLOutsideCodeBlocks(content string) string {
 
 // UI represents the tool's Bubble Tea model and methods
 type UI struct {
-	content        string
-	reasoning      string
-	err            error
-	renderer       *glamour.TermRenderer
-	client         *ollama.Client
-	request        ollama.ChatRequest
-	done           bool
-	width          int
-	preparedCmd    string
-	toolWasCalled  bool
-	summarizing    bool
-	chunkChan      chan tea.Msg
-	confirmCh      chan bool
-	confirmCmd     string
-	ctx            context.Context
-	cancel         context.CancelFunc
-	spinner        spinner.Model
-	savedFiles     []SavedFile
-	askMoreInput   bool
-	inputMode      bool
-	inputModel     InputModel
-	moreInputCh    chan string
-	height         int
-	rReasoning     *glamour.TermRenderer
-	rContent       *glamour.TermRenderer
-	lastWReasoning int
-	lastWContent   int
+	content           string
+	reasoning         string
+	err               error
+	renderer          *glamour.TermRenderer
+	client            *ollama.Client
+	request           ollama.ChatRequest
+	done              bool
+	width             int
+	preparedCmd       string
+	toolWasCalled     bool
+	summarizing       bool
+	Send              func(tea.Msg)
+	confirmCh         chan bool
+	confirmCmd        string
+	ctx               context.Context
+	cancel            context.CancelFunc
+	spinner           spinner.Model
+	savedFiles        []SavedFile
+	askMoreInput      bool
+	inputMode         bool
+	inputModel        InputModel
+	moreInputCh       chan string
+	height            int
+	rReasoning        *glamour.TermRenderer
+	rContent          *glamour.TermRenderer
+	lastWReasoning    int
+	lastWContent      int
+	renderedReasoning string
+	renderedContent   string
+	reasoningDirty    bool
+	contentDirty      bool
+	isActive          bool
+	isRendering       bool
 }
 
 // Msg types for Bubble Tea
@@ -128,6 +134,9 @@ type fileSavedMsg struct {
 type commandMsg string
 type summarizingMsg bool
 type moreInputMsg chan string
+type busyMsg bool
+type renderedReasoningMsg string
+type renderedContentMsg string
 
 // NewUI creates a new UI model
 func NewUI(client *ollama.Client, req ollama.ChatRequest) *UI {
@@ -138,22 +147,29 @@ func NewUI(client *ollama.Client, req ollama.ChatRequest) *UI {
 	return &UI{
 		client:      client,
 		request:     req,
-		chunkChan:   make(chan tea.Msg),
 		ctx:         ctx,
 		cancel:      cancel,
 		spinner:     s,
 		summarizing: false,
 		savedFiles:  make([]SavedFile, 0),
+		isActive:    true,
 	}
 }
 
+func (u *UI) SetSender(send func(tea.Msg)) {
+	u.Send = send
+}
+
 func (u *UI) Init() tea.Cmd {
-	return u.spinner.Tick
+	return tea.Batch(u.spinner.Tick, u.renderBackground())
 }
 
 func (u *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case spinner.TickMsg:
+		if !u.isActive {
+			return u, nil
+		}
 		var cmd tea.Cmd
 		u.spinner, cmd = u.spinner.Update(msg)
 		return u, cmd
@@ -170,10 +186,12 @@ func (u *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				u.confirmCh <- true
 				u.confirmCh = nil
 				u.confirmCmd = ""
+				return u, nil
 			} else if msg.String() == "n" || msg.String() == "N" {
 				u.confirmCh <- false
 				u.confirmCh = nil
 				u.confirmCmd = ""
+				return u, nil
 			}
 		} else if u.askMoreInput {
 			if msg.String() == "y" || msg.String() == "Y" {
@@ -219,20 +237,49 @@ func (u *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		u.renderer = nil
 		u.rReasoning = nil
 		u.rContent = nil
+		u.reasoningDirty = true
+		u.contentDirty = true
 		return u, nil
 	case responseMsg:
 		u.content += string(msg)
-		return u, u.waitForNextChunk()
+		u.contentDirty = true
+		return u, u.renderBackground()
 	case reasoningMsg:
 		u.reasoning += string(msg)
-		return u, u.waitForNextChunk()
+		u.reasoningDirty = true
+		return u, u.renderBackground()
+	case combinedRenderMsg:
+		if msg.ReasoningDirty {
+			u.renderedReasoning = msg.Reasoning
+			if len(u.reasoning) == len(msg.OriginalReasoning) {
+				u.reasoningDirty = false
+			}
+		}
+		if msg.ContentDirty {
+			u.renderedContent = msg.Content
+			if len(u.content) == len(msg.OriginalContent) {
+				u.contentDirty = false
+			}
+		}
+		u.isRendering = false
+		// If anything became dirty while we were rendering, trigger another pass
+		if u.reasoningDirty || u.contentDirty {
+			return u, u.renderBackground()
+		}
+		return u, nil
+	case busyMsg:
+		u.isActive = bool(msg)
+		if u.isActive {
+			return u, u.spinner.Tick
+		}
+		return u, nil
 	case toolCallMsg:
 		u.toolWasCalled = true
-		return u, u.waitForNextChunk()
+		return u, nil
 	case confirmationMsg:
 		u.confirmCh = msg.Ch
 		u.confirmCmd = msg.Command
-		return u, u.waitForNextChunk()
+		return u, nil
 	case errorMsg:
 		u.err = msg
 		u.done = true
@@ -243,14 +290,14 @@ func (u *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			Content: msg.Content,
 			IsTemp:  msg.IsTemp,
 		})
-		return u, u.waitForNextChunk()
+		return u, nil
 	case commandMsg:
 		u.preparedCmd = string(msg)
 		CopyToClipboard(string(msg))
-		return u, u.waitForNextChunk()
+		return u, nil
 	case summarizingMsg:
 		u.summarizing = bool(msg)
-		return u, u.waitForNextChunk()
+		return u, nil
 	case tea.MouseMsg:
 		if msg.Type == tea.MouseLeft && u.confirmCh != nil {
 			// Basic click detection for [y/N]
@@ -262,12 +309,106 @@ func (u *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case moreInputMsg:
 		u.moreInputCh = msg
 		u.askMoreInput = true
+		u.isActive = false
 		return u, nil
 	}
 	return u, nil
 }
 
-func (u *UI) View() string {
+func (u *UI) renderBackground() tea.Cmd {
+	if u.isRendering || (!u.reasoningDirty && !u.contentDirty) {
+		return nil
+	}
+	u.isRendering = true
+
+	w := u.width
+	if w == 0 {
+		w = 80
+	}
+
+	style := os.Getenv("AI_STYLE")
+	if style == "" {
+		style = os.Getenv("GLAMOUR_STYLE")
+	}
+	var styleOpt glamour.TermRendererOption
+	if style != "" && style != "auto" {
+		styleOpt = glamour.WithStandardStyle(style)
+	} else {
+		styleOpt = glamour.WithAutoStyle()
+	}
+
+	if u.rReasoning == nil || u.lastWReasoning != w-4 {
+		r, _ := glamour.NewTermRenderer(styleOpt, glamour.WithWordWrap(w-4))
+		u.rReasoning = r
+		u.lastWReasoning = w - 4
+	}
+	if u.rContent == nil || u.lastWContent != w-2 {
+		r, _ := glamour.NewTermRenderer(styleOpt, glamour.WithWordWrap(w-2))
+		u.rContent = r
+		u.lastWContent = w - 2
+	}
+
+	rReasoning := u.rReasoning
+	rContent := u.rContent
+
+	// Capture state synchronously
+	originalContent := u.content
+	originalReasoning := u.reasoning
+	reasoningWasDirty := u.reasoningDirty
+	contentWasDirty := u.contentDirty
+
+	return func() tea.Msg {
+		var renderedReasoning, renderedContent string
+		var err error
+
+		if reasoningWasDirty {
+			if rReasoning != nil {
+				renderedReasoning, err = rReasoning.Render("_Thinking..._\n" + originalReasoning)
+				if err != nil {
+					renderedReasoning = "_Thinking..._\n" + originalReasoning
+				}
+			} else {
+				renderedReasoning = "_Thinking..._\n" + originalReasoning
+			}
+		}
+
+		if contentWasDirty {
+			displayContent := originalContent
+			if strings.Count(displayContent, "```")%2 != 0 {
+				displayContent += "\n```"
+			}
+			displayContent = escapeHTMLOutsideCodeBlocks(displayContent)
+			if rContent != nil {
+				renderedContent, err = rContent.Render(displayContent)
+				if err != nil {
+					renderedContent = displayContent
+				}
+			} else {
+				renderedContent = displayContent
+			}
+		}
+
+		return combinedRenderMsg{
+			Reasoning:         renderedReasoning,
+			Content:           renderedContent,
+			ReasoningDirty:    reasoningWasDirty,
+			ContentDirty:      contentWasDirty,
+			OriginalContent:   originalContent,
+			OriginalReasoning: originalReasoning,
+		}
+	}
+}
+
+type combinedRenderMsg struct {
+	Reasoning         string
+	Content           string
+	ReasoningDirty    bool
+	ContentDirty      bool
+	OriginalContent   string
+	OriginalReasoning string
+}
+
+func (u *UI) FullView() string {
 	var out string
 	if u.content == "" && u.reasoning == "" {
 		status := fmt.Sprintf(" %s Thinking...", u.spinner.View())
@@ -279,43 +420,7 @@ func (u *UI) View() string {
 		}
 		out = lipgloss.NewStyle().Foreground(lipgloss.Color("240")).Render(status)
 	} else {
-		style := os.Getenv("AI_STYLE")
-		if style == "" {
-			style = os.Getenv("GLAMOUR_STYLE")
-		}
-		var styleOpt glamour.TermRendererOption
-		if style != "" && style != "auto" {
-			styleOpt = glamour.WithStandardStyle(style)
-		} else {
-			styleOpt = glamour.WithAutoStyle()
-		}
-
 		if u.reasoning != "" {
-			// Horizontal split (Top/Bottom)
-			w := u.width
-			if w == 0 {
-				w = 80
-			}
-
-			// Render Reasoning
-			if u.rReasoning == nil || u.lastWReasoning != w {
-				u.rReasoning, _ = glamour.NewTermRenderer(styleOpt, glamour.WithWordWrap(w-4))
-				u.lastWReasoning = w
-			}
-			renderedReasoning, _ := u.rReasoning.Render("_Thinking..._\n" + u.reasoning)
-
-			// Render Content
-			if u.rContent == nil || u.lastWContent != w {
-				u.rContent, _ = glamour.NewTermRenderer(styleOpt, glamour.WithWordWrap(w-2))
-				u.lastWContent = w
-			}
-			displayContent := u.content
-			if strings.Count(displayContent, "```")%2 != 0 {
-				displayContent += "\n```"
-			}
-			displayContent = escapeHTMLOutsideCodeBlocks(displayContent)
-			renderedContent, _ := u.rContent.Render(displayContent)
-
 			reasoningStyle := lipgloss.NewStyle().
 				Padding(0, 1).
 				Border(lipgloss.NormalBorder(), false, false, true, false).
@@ -324,44 +429,22 @@ func (u *UI) View() string {
 				MarginBottom(1)
 
 			out = lipgloss.JoinVertical(lipgloss.Left,
-				reasoningStyle.Render(renderedReasoning),
-				renderedContent,
+				reasoningStyle.Render(u.renderedReasoning),
+				u.renderedContent,
 			)
 		} else {
-			// Traditional vertical view
-			displayContent := u.content
-			// Ensure code blocks are closed for partial rendering
-			if strings.Count(displayContent, "```")%2 != 0 {
-				displayContent += "\n```"
-			}
-
-			displayContent = escapeHTMLOutsideCodeBlocks(displayContent)
-
-			if u.renderer == nil {
-				w := u.width
-				if w == 0 {
-					w = 80
-				}
-				u.renderer, _ = glamour.NewTermRenderer(
-					styleOpt,
-					glamour.WithWordWrap(w-2),
-				)
-			}
-
-			rendered, _ := u.renderer.Render(displayContent)
-
-			// Post-process markers for saved files
-			for _, f := range u.savedFiles {
-				marker := fmt.Sprintf("@@SAVED:%s@@", f.Path)
-				if strings.Contains(rendered, marker) {
-					rendered = strings.ReplaceAll(rendered, marker, u.renderFileSavedLines(f.Path))
-				}
-			}
-
-			out = rendered
+			out = u.renderedContent
 		}
 
-		if !u.done && u.confirmCh == nil {
+		// Post-process markers for saved files
+		for _, f := range u.savedFiles {
+			marker := fmt.Sprintf("@@SAVED:%s@@", f.Path)
+			if strings.Contains(out, marker) {
+				out = strings.ReplaceAll(out, marker, u.renderFileSavedLines(f.Path))
+			}
+		}
+
+		if u.isActive && !u.done && u.confirmCh == nil {
 			out += fmt.Sprintf("\n %s\n", u.spinner.View())
 		}
 	}
@@ -395,10 +478,17 @@ func (u *UI) View() string {
 	return out
 }
 
-func (u *UI) waitForNextChunk() tea.Cmd {
-	return func() tea.Msg {
-		return <-u.chunkChan
+func (u *UI) View() string {
+	out := u.FullView()
+
+	if u.height > 2 && !u.done {
+		lines := strings.Split(out, "\n")
+		maxLines := u.height - 1
+		if len(lines) > maxLines {
+			out = strings.Join(lines[len(lines)-maxLines:], "\n")
+		}
 	}
+	return out
 }
 
 // RunInteractiveSession handles tool execution loops for a TTY
@@ -406,14 +496,15 @@ func (u *UI) RunInteractiveSession() {
 	for {
 		select {
 		case <-u.ctx.Done():
-			u.chunkChan <- doneMsg(true)
+			u.Send(doneMsg(true))
 			return
 		default:
 		}
 
-		u.chunkChan <- summarizingMsg(true)
+		u.Send(busyMsg(true))
+		u.Send(summarizingMsg(true))
 		ManageContext(u.ctx, u.client, &u.request)
-		u.chunkChan <- summarizingMsg(false)
+		u.Send(summarizingMsg(false))
 
 		workerCh := make(chan ollama.StreamResponse)
 		go u.client.StreamWorker(u.ctx, u.request, workerCh)
@@ -422,23 +513,23 @@ func (u *UI) RunInteractiveSession() {
 		assistantMsg.Role = "assistant"
 
 		sh := NewStreamHandler(
-			func(text string) { u.chunkChan <- responseMsg(text) },
+			func(text string) { u.Send(responseMsg(text)) },
 			func(filename, content string, isTemp bool) {
-				u.chunkChan <- fileSavedMsg{Filename: filename, Content: content, IsTemp: isTemp}
+				u.Send(fileSavedMsg{Filename: filename, Content: content, IsTemp: isTemp})
 			},
 			func(cmd string) {
-				u.chunkChan <- commandMsg(cmd)
+				u.Send(commandMsg(cmd))
 			},
 		)
 
 		for msg := range workerCh {
 			if msg.Error != nil {
-				u.chunkChan <- errorMsg(msg.Error)
+				u.Send(errorMsg(msg.Error))
 				return
 			}
 			if msg.ReasoningContent != "" {
 				assistantMsg.ReasoningContent += msg.ReasoningContent
-				u.chunkChan <- reasoningMsg(msg.ReasoningContent)
+				u.Send(reasoningMsg(msg.ReasoningContent))
 			}
 			if msg.Content != "" {
 				assistantMsg.Content += msg.Content
@@ -446,7 +537,7 @@ func (u *UI) RunInteractiveSession() {
 			}
 			if len(msg.ToolCalls) > 0 {
 				assistantMsg.ToolCalls = append(assistantMsg.ToolCalls, msg.ToolCalls...)
-				u.chunkChan <- toolCallMsg(msg.ToolCalls)
+				u.Send(toolCallMsg(msg.ToolCalls))
 			}
 		}
 		sh.Flush()
@@ -479,11 +570,12 @@ func (u *UI) RunInteractiveSession() {
 		}
 
 		if !hasRunCommand {
+			u.Send(busyMsg(false))
 			moreCh := make(chan string)
-			u.chunkChan <- moreInputMsg(moreCh)
+			u.Send(moreInputMsg(moreCh))
 			newInput := <-moreCh
 			if newInput == "" {
-				u.chunkChan <- doneMsg(true)
+				u.Send(doneMsg(true))
 				return
 			}
 			u.request.Messages = append(u.request.Messages, ollama.Message{
@@ -556,8 +648,6 @@ func (u *UI) GetMessages() []ollama.Message {
 	return u.request.Messages
 }
 
-func (u *UI) ChunkChan() chan tea.Msg { return u.chunkChan }
-
 // uiToolHandler implements ToolUI for the Bubble Tea interactive UI
 type uiToolHandler struct {
 	ui *UI
@@ -567,31 +657,31 @@ func (h *uiToolHandler) ConfirmCommand(cmd string) bool {
 	shouldRun := os.Getenv("AI_YOLO") == "true"
 	if !shouldRun {
 		ch := make(chan bool)
-		h.ui.chunkChan <- confirmationMsg{Command: cmd, Ch: ch}
+		h.ui.Send(confirmationMsg{Command: cmd, Ch: ch})
 		select {
 		case shouldRun = <-ch:
 		case <-h.ui.ctx.Done():
 			return false
 		}
 		if !shouldRun {
-			h.ui.chunkChan <- responseMsg(fmt.Sprintf("\n_Skip: %s_\n", cmd))
+			h.ui.Send(responseMsg(fmt.Sprintf("\n_Skip: %s_\n", cmd)))
 		}
 	}
 	return shouldRun
 }
 
 func (h *uiToolHandler) LogActivity(activity string) {
-	h.ui.chunkChan <- responseMsg(fmt.Sprintf("\n%s\n", activity))
+	h.ui.Send(responseMsg(fmt.Sprintf("\n%s\n", activity)))
 }
 
 func (h *uiToolHandler) LogOutput(output string) {
 	if output != "" {
 		if strings.HasPrefix(output, "```") {
-			h.ui.chunkChan <- responseMsg(fmt.Sprintf("%s\n", output))
+			h.ui.Send(responseMsg(fmt.Sprintf("%s\n", output)))
 		} else if strings.Contains(output, "\n") {
-			h.ui.chunkChan <- responseMsg(fmt.Sprintf("\n```\n%s\n```\n", strings.TrimSpace(output)))
+			h.ui.Send(responseMsg(fmt.Sprintf("\n```\n%s\n```\n", strings.TrimSpace(output))))
 		} else {
-			h.ui.chunkChan <- responseMsg(fmt.Sprintf("\n%s\n", output))
+			h.ui.Send(responseMsg(fmt.Sprintf("\n%s\n", output)))
 		}
 	}
 }
