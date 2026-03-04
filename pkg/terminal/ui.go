@@ -27,6 +27,9 @@ var (
 			Border(lipgloss.RoundedBorder()).
 			BorderForeground(lipgloss.Color("62")).
 			Padding(0, 1)
+	errorStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("9")).
+			Bold(true)
 )
 
 // escapeHTMLOutsideCodeBlocks escapes '<' to prevent markdown parser from eating unknown HTML tags
@@ -181,6 +184,7 @@ func (u *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return u, u.waitForNextChunk()
 	case errorMsg:
 		u.err = msg
+		u.done = true
 		return u, tea.Quit
 	case fileSavedMsg:
 		u.savedFiles = append(u.savedFiles, SavedFile{
@@ -209,10 +213,6 @@ func (u *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (u *UI) View() string {
-	if u.err != nil {
-		return fmt.Sprintf("\nError: %v\n", u.err)
-	}
-
 	var out string
 	if u.content == "" && u.reasoning == "" {
 		status := fmt.Sprintf(" %s Thinking...", u.spinner.View())
@@ -293,6 +293,9 @@ func (u *UI) View() string {
 			out += promptView
 		}
 	}
+	if u.err != nil {
+		out += fmt.Sprintf("\n%s\n", errorStyle.Render(fmt.Sprintf("Error: %v", u.err)))
+	}
 	return out
 }
 
@@ -334,8 +337,8 @@ func (u *UI) RunInteractiveSession() {
 
 		for msg := range workerCh {
 			if msg.Error != nil {
-				u.chunkChan <- responseMsg(fmt.Sprintf("\n\n**Error:** %v\n", msg.Error))
-				break
+				u.chunkChan <- errorMsg(msg.Error)
+				return
 			}
 			if msg.ReasoningContent != "" {
 				assistantMsg.ReasoningContent += msg.ReasoningContent

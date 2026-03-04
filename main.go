@@ -231,10 +231,6 @@ func main() {
 	}
 
 	if finalModel, ok := res.(*terminal.UI); ok {
-		if finalModel.GetError() != nil {
-			fmt.Printf("\nError: %v\n", finalModel.GetError())
-		}
-
 		savedFiles := finalModel.GetSavedFiles()
 		content := finalModel.GetContent()
 
@@ -249,6 +245,14 @@ func main() {
 			if _, err := vp.Run(); err != nil {
 				fmt.Printf("Error running file viewer: %v\n", err)
 			}
+			// If there's an error but we showed the viewer, the error might not be visible.
+			// Print it after the viewer exits.
+			if finalModel.GetError() != nil {
+				fmt.Println(finalModel.View())
+			}
+		} else if content != "" || finalModel.GetError() != nil {
+			// Just show content regular if no files or if there is an error to display
+			fmt.Print("\n" + finalModel.View())
 		}
 
 		if cfg.SaveSession {
