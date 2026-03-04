@@ -135,8 +135,6 @@ type commandMsg string
 type summarizingMsg bool
 type moreInputMsg chan string
 type busyMsg bool
-type renderedReasoningMsg string
-type renderedContentMsg string
 
 // NewUI creates a new UI model
 func NewUI(client *ollama.Client, req ollama.ChatRequest) *UI {
