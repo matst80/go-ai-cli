@@ -63,6 +63,43 @@ func TestExtractCommandFromMarkdown(t *testing.T) {
 	}
 }
 
+func TestNormalizeURL(t *testing.T) {
+	tests := []struct {
+		name string
+		url  string
+		want string
+	}{
+		{
+			name: "already has https",
+			url:  "https://google.com",
+			want: "https://google.com",
+		},
+		{
+			name: "already has http",
+			url:  "http://example.com",
+			want: "http://example.com",
+		},
+		{
+			name: "missing scheme",
+			url:  "www.elgiganten.se",
+			want: "https://www.elgiganten.se",
+		},
+		{
+			name: "empty url",
+			url:  "",
+			want: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := NormalizeURL(tt.url); got != tt.want {
+				t.Errorf("NormalizeURL() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestProcessInputs(t *testing.T) {
 	// Create a dummy text file
 	content := "hello world"

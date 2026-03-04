@@ -81,24 +81,33 @@ func escapeHTMLOutsideCodeBlocks(content string) string {
 
 // UI represents the tool's Bubble Tea model and methods
 type UI struct {
-	content       string
-	reasoning     string
-	err           error
-	renderer      *glamour.TermRenderer
-	client        *ollama.Client
-	request       ollama.ChatRequest
-	done          bool
-	width         int
-	preparedCmd   string
-	toolWasCalled bool
-	summarizing   bool
-	chunkChan     chan tea.Msg
-	confirmCh     chan bool
-	confirmCmd    string
-	ctx           context.Context
-	cancel        context.CancelFunc
-	spinner       spinner.Model
-	savedFiles    []SavedFile
+	content        string
+	reasoning      string
+	err            error
+	renderer       *glamour.TermRenderer
+	client         *ollama.Client
+	request        ollama.ChatRequest
+	done           bool
+	width          int
+	preparedCmd    string
+	toolWasCalled  bool
+	summarizing    bool
+	chunkChan      chan tea.Msg
+	confirmCh      chan bool
+	confirmCmd     string
+	ctx            context.Context
+	cancel         context.CancelFunc
+	spinner        spinner.Model
+	savedFiles     []SavedFile
+	askMoreInput   bool
+	inputMode      bool
+	inputModel     InputModel
+	moreInputCh    chan string
+	height         int
+	rReasoning     *glamour.TermRenderer
+	rContent       *glamour.TermRenderer
+	lastWReasoning int
+	lastWContent   int
 }
 
 // Msg types for Bubble Tea
@@ -118,6 +127,7 @@ type fileSavedMsg struct {
 }
 type commandMsg string
 type summarizingMsg bool
+type moreInputMsg chan string
 
 // NewUI creates a new UI model
 func NewUI(client *ollama.Client, req ollama.ChatRequest) *UI {
@@ -126,14 +136,14 @@ func NewUI(client *ollama.Client, req ollama.ChatRequest) *UI {
 	s.Spinner = spinner.Dot
 	s.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("205"))
 	return &UI{
-		client:     client,
-		request:    req,
-		chunkChan:  make(chan tea.Msg),
-		ctx:        ctx,
-		cancel:     cancel,
-		spinner:    s,
+		client:      client,
+		request:     req,
+		chunkChan:   make(chan tea.Msg),
+		ctx:         ctx,
+		cancel:      cancel,
+		spinner:     s,
 		summarizing: false,
-		savedFiles: make([]SavedFile, 0),
+		savedFiles:  make([]SavedFile, 0),
 	}
 }
 
@@ -165,10 +175,51 @@ func (u *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				u.confirmCh = nil
 				u.confirmCmd = ""
 			}
+		} else if u.askMoreInput {
+			if msg.String() == "y" || msg.String() == "Y" {
+				u.askMoreInput = false
+				u.inputMode = true
+				u.inputModel = NewInputModel()
+				u.inputModel.Title = "Follow-up prompt:"
+				u.inputModel.Prompt = "ctrl+s / ctrl+j / alt+enter to submit • esc/ctrl+c to cancel"
+				u.inputModel.Textarea.SetWidth(u.width - 10)
+				return u, u.inputModel.Init()
+			} else if msg.String() == "n" || msg.String() == "N" || msg.Type == tea.KeyEnter {
+				u.askMoreInput = false
+				ch := u.moreInputCh
+				u.moreInputCh = nil
+				go func() { ch <- "" }()
+				return u, nil
+			}
+		} else if u.inputMode {
+			if msg.Type == tea.KeyCtrlC || msg.Type == tea.KeyEsc {
+				u.inputMode = false
+				ch := u.moreInputCh
+				u.moreInputCh = nil
+				go func() { ch <- "" }()
+				return u, nil
+			}
+
+			var cmd tea.Cmd
+			m, cmd := u.inputModel.Update(msg)
+			u.inputModel = m.(InputModel)
+			if u.inputModel.Quitting {
+				u.inputMode = false
+				ch := u.moreInputCh
+				u.moreInputCh = nil
+				val := u.inputModel.Value()
+				go func() { ch <- val }()
+				return u, u.spinner.Tick
+			}
+			return u, cmd
 		}
 	case tea.WindowSizeMsg:
 		u.width = msg.Width
-		u.renderer = nil // Recreate renderer on size change
+		u.height = msg.Height
+		u.renderer = nil
+		u.rReasoning = nil
+		u.rContent = nil
+		return u, nil
 	case responseMsg:
 		u.content += string(msg)
 		return u, u.waitForNextChunk()
@@ -208,6 +259,10 @@ func (u *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case doneMsg:
 		u.done = true
 		return u, tea.Quit
+	case moreInputMsg:
+		u.moreInputCh = msg
+		u.askMoreInput = true
+		return u, nil
 	}
 	return u, nil
 }
@@ -224,53 +279,87 @@ func (u *UI) View() string {
 		}
 		out = lipgloss.NewStyle().Foreground(lipgloss.Color("240")).Render(status)
 	} else {
-		displayContent := u.content
+		style := os.Getenv("AI_STYLE")
+		if style == "" {
+			style = os.Getenv("GLAMOUR_STYLE")
+		}
+		var styleOpt glamour.TermRendererOption
+		if style != "" && style != "auto" {
+			styleOpt = glamour.WithStandardStyle(style)
+		} else {
+			styleOpt = glamour.WithAutoStyle()
+		}
+
 		if u.reasoning != "" {
-			displayContent = "_Thinking..._\n" + u.reasoning + "\n\n---\n\n" + u.content
-		}
-
-		// Ensure code blocks are closed for partial rendering so they show up properly while streaming
-		if strings.Count(displayContent, "```")%2 != 0 {
-			displayContent += "\n```"
-		}
-
-		displayContent = escapeHTMLOutsideCodeBlocks(displayContent)
-
-		if u.renderer == nil {
+			// Horizontal split (Top/Bottom)
 			w := u.width
 			if w == 0 {
 				w = 80
 			}
 
-			style := os.Getenv("AI_STYLE")
-			if style == "" {
-				style = os.Getenv("GLAMOUR_STYLE")
+			// Render Reasoning
+			if u.rReasoning == nil || u.lastWReasoning != w {
+				u.rReasoning, _ = glamour.NewTermRenderer(styleOpt, glamour.WithWordWrap(w-4))
+				u.lastWReasoning = w
 			}
+			renderedReasoning, _ := u.rReasoning.Render("_Thinking..._\n" + u.reasoning)
 
-			var styleOpt glamour.TermRendererOption
-			if style != "" && style != "auto" {
-				styleOpt = glamour.WithStandardStyle(style)
-			} else {
-				styleOpt = glamour.WithAutoStyle()
+			// Render Content
+			if u.rContent == nil || u.lastWContent != w {
+				u.rContent, _ = glamour.NewTermRenderer(styleOpt, glamour.WithWordWrap(w-2))
+				u.lastWContent = w
 			}
+			displayContent := u.content
+			if strings.Count(displayContent, "```")%2 != 0 {
+				displayContent += "\n```"
+			}
+			displayContent = escapeHTMLOutsideCodeBlocks(displayContent)
+			renderedContent, _ := u.rContent.Render(displayContent)
 
-			u.renderer, _ = glamour.NewTermRenderer(
-				styleOpt,
-				glamour.WithWordWrap(w-2),
+			reasoningStyle := lipgloss.NewStyle().
+				Padding(0, 1).
+				Border(lipgloss.NormalBorder(), false, false, true, false).
+				BorderForeground(lipgloss.Color("240")).
+				Foreground(lipgloss.Color("245")).
+				MarginBottom(1)
+
+			out = lipgloss.JoinVertical(lipgloss.Left,
+				reasoningStyle.Render(renderedReasoning),
+				renderedContent,
 			)
-		}
-
-		rendered, _ := u.renderer.Render(displayContent)
-
-		// Post-process markers for saved files
-		for _, f := range u.savedFiles {
-			marker := fmt.Sprintf("@@SAVED:%s@@", f.Path)
-			if strings.Contains(rendered, marker) {
-				rendered = strings.ReplaceAll(rendered, marker, u.renderFileSavedLines(f.Path))
+		} else {
+			// Traditional vertical view
+			displayContent := u.content
+			// Ensure code blocks are closed for partial rendering
+			if strings.Count(displayContent, "```")%2 != 0 {
+				displayContent += "\n```"
 			}
-		}
 
-		out = rendered
+			displayContent = escapeHTMLOutsideCodeBlocks(displayContent)
+
+			if u.renderer == nil {
+				w := u.width
+				if w == 0 {
+					w = 80
+				}
+				u.renderer, _ = glamour.NewTermRenderer(
+					styleOpt,
+					glamour.WithWordWrap(w-2),
+				)
+			}
+
+			rendered, _ := u.renderer.Render(displayContent)
+
+			// Post-process markers for saved files
+			for _, f := range u.savedFiles {
+				marker := fmt.Sprintf("@@SAVED:%s@@", f.Path)
+				if strings.Contains(rendered, marker) {
+					rendered = strings.ReplaceAll(rendered, marker, u.renderFileSavedLines(f.Path))
+				}
+			}
+
+			out = rendered
+		}
 
 		if !u.done && u.confirmCh == nil {
 			out += fmt.Sprintf("\n %s\n", u.spinner.View())
@@ -292,6 +381,13 @@ func (u *UI) View() string {
 		} else {
 			out += promptView
 		}
+	} else if u.askMoreInput {
+		prompt := fmt.Sprintf("💬 %s %s",
+			headerStyle.Render("More input?"),
+			lipgloss.NewStyle().Foreground(lipgloss.Color("240")).Render("[y/N]"))
+		out += "\n" + borderStyle.Render(prompt) + "\n"
+	} else if u.inputMode {
+		out += "\n" + borderStyle.Render(u.inputModel.View()) + "\n"
 	}
 	if u.err != nil {
 		out += fmt.Sprintf("\n%s\n", errorStyle.Render(fmt.Sprintf("Error: %v", u.err)))
@@ -367,7 +463,7 @@ func (u *UI) RunInteractiveSession() {
 		}
 
 		for _, tc := range assistantMsg.ToolCalls {
-			output, err := executor.HandleToolCall(u.ctx, tc, uiHandler)
+			output, images, err := executor.HandleToolCall(u.ctx, tc, uiHandler)
 			if err != nil {
 				// Handle specific parse errors or unknown tools gracefully
 				continue
@@ -377,13 +473,26 @@ func (u *UI) RunInteractiveSession() {
 				Role:       "tool",
 				ToolCallID: tc.ID,
 				Content:    output,
+				Images:     images,
 			})
 			hasRunCommand = true
 		}
 
 		if !hasRunCommand {
-			u.chunkChan <- doneMsg(true)
-			return
+			moreCh := make(chan string)
+			u.chunkChan <- moreInputMsg(moreCh)
+			newInput := <-moreCh
+			if newInput == "" {
+				u.chunkChan <- doneMsg(true)
+				return
+			}
+			u.request.Messages = append(u.request.Messages, ollama.Message{
+				Role:    "user",
+				Content: newInput,
+			})
+			u.content += "\n\n---\n\n**YOU:** " + newInput + "\n\n"
+			u.reasoning = ""
+			continue
 		}
 
 		// Append tool responses and loop for more chain-of-thought
@@ -437,6 +546,7 @@ func (u *UI) renderFileSavedLines(filename string) string {
 // GetResult methods for after the program runs
 func (u *UI) GetPreparedCmd() string { return u.preparedCmd }
 func (u *UI) GetContent() string     { return u.content }
+func (u *UI) GetReasoning() string   { return u.reasoning }
 func (u *UI) GetError() error        { return u.err }
 func (u *UI) ToolWasCalled() bool    { return u.toolWasCalled }
 func (u *UI) GetSavedFiles() []SavedFile {

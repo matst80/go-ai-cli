@@ -45,6 +45,17 @@ func CreateFile(filename, content string) error {
 	return os.WriteFile(filename, []byte(content), 0644)
 }
 
+// NormalizeURL ensures the URL has a scheme, defaulting to https:// if missing
+func NormalizeURL(u string) string {
+	if u == "" {
+		return ""
+	}
+	if !strings.Contains(u, "://") {
+		return "https://" + u
+	}
+	return u
+}
+
 // AppendFile appends content to an existing file
 func AppendFile(filename, content string) error {
 	dir := filepath.Dir(filename)

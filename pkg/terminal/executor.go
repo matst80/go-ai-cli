@@ -24,20 +24,20 @@ func NewToolExecutor() *ToolExecutor {
 }
 
 // HandleToolCall processes a tool call from the AI
-func (e *ToolExecutor) HandleToolCall(ctx context.Context, tc ollama.ToolCall, ui ToolUI) (string, error) {
+func (e *ToolExecutor) HandleToolCall(ctx context.Context, tc ollama.ToolCall, ui ToolUI) (string, []string, error) {
 	switch tc.Function.Name {
 	case "execute":
 		var args struct {
 			Command string `json:"command"`
 		}
 		if err := ollama.ParseToolArguments(tc.Function.Arguments, &args); err != nil {
-			return "", err
+			return "", nil, err
 		}
 
 		shouldRun := ui.ConfirmCommand(args.Command)
 
 		if !shouldRun {
-			return "Cancelled by user", nil
+			return "Cancelled by user", nil, nil
 		}
 
 		ui.LogActivity(fmt.Sprintf("**Running:** `%s`", args.Command))
@@ -46,9 +46,9 @@ func (e *ToolExecutor) HandleToolCall(ctx context.Context, tc ollama.ToolCall, u
 			ui.LogOutput(output)
 		}
 		if err != nil {
-			return output + "\nError: " + err.Error(), nil
+			return output + "\nError: " + err.Error(), nil, nil
 		}
-		return output, nil
+		return output, nil, nil
 
 	case "web_search":
 		var args struct {
@@ -58,7 +58,7 @@ func (e *ToolExecutor) HandleToolCall(ctx context.Context, tc ollama.ToolCall, u
 			Offset  int    `json:"offset"`
 		}
 		if err := ollama.ParseToolArguments(tc.Function.Arguments, &args); err != nil {
-			return "", err
+			return "", nil, err
 		}
 
 		ui.LogActivity(fmt.Sprintf("**Searching:** `%s`", args.Query))
@@ -67,7 +67,7 @@ func (e *ToolExecutor) HandleToolCall(ctx context.Context, tc ollama.ToolCall, u
 			output = fmt.Sprintf("Error: %v", err)
 		}
 		ui.LogOutput(output)
-		return output, nil
+		return output, nil, nil
 
 	case "browser":
 		var args struct {
@@ -77,23 +77,23 @@ func (e *ToolExecutor) HandleToolCall(ctx context.Context, tc ollama.ToolCall, u
 			Value    string `json:"value"`
 		}
 		if err := ollama.ParseToolArguments(tc.Function.Arguments, &args); err != nil {
-			return "", err
+			return "", nil, err
 		}
 
 		ui.LogActivity(fmt.Sprintf("**Browsing:** `%s` *(%s)*", args.URL, args.Action))
-		output, err := ChromeCDP(args.URL, args.Action, args.Selector, args.Value)
+		output, images, err := ChromeCDP(args.URL, args.Action, args.Selector, args.Value)
 		if err != nil {
 			output = fmt.Sprintf("Error: %v", err)
 		}
 		ui.LogOutput(output)
-		return output, nil
+		return output, images, nil
 
 	case "remember":
 		var args struct {
 			Info string `json:"info"`
 		}
 		if err := ollama.ParseToolArguments(tc.Function.Arguments, &args); err != nil {
-			return "", err
+			return "", nil, err
 		}
 
 		cfg, _ := config.Load()
@@ -104,14 +104,14 @@ func (e *ToolExecutor) HandleToolCall(ctx context.Context, tc ollama.ToolCall, u
 		_ = cfg.Save()
 
 		ui.LogActivity(fmt.Sprintf("**Remembered:** %s", args.Info))
-		return "Memory saved", nil
+		return "Memory saved", nil, nil
 
 	case "set_system_prompt":
 		var args struct {
 			Prompt string `json:"prompt"`
 		}
 		if err := ollama.ParseToolArguments(tc.Function.Arguments, &args); err != nil {
-			return "", err
+			return "", nil, err
 		}
 
 		cfg, _ := config.Load()
@@ -122,9 +122,9 @@ func (e *ToolExecutor) HandleToolCall(ctx context.Context, tc ollama.ToolCall, u
 		_ = cfg.Save()
 
 		ui.LogActivity("**System prompt updated**")
-		return "System prompt updated", nil
+		return "System prompt updated", nil, nil
 
 	default:
-		return "", fmt.Errorf("unknown tool: %s", tc.Function.Name)
+		return "", nil, fmt.Errorf("unknown tool: %s", tc.Function.Name)
 	}
 }

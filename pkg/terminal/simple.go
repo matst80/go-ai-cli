@@ -73,7 +73,7 @@ func RunSimpleSession(client *ollama.Client, req ollama.ChatRequest) (string, []
 		uiHandler := &simpleToolHandler{}
 
 		for _, tc := range assistantMsg.ToolCalls {
-			output, err := executor.HandleToolCall(context.Background(), tc, uiHandler)
+			output, images, err := executor.HandleToolCall(context.Background(), tc, uiHandler)
 			if err != nil {
 				continue
 			}
@@ -81,6 +81,7 @@ func RunSimpleSession(client *ollama.Client, req ollama.ChatRequest) (string, []
 				Role:       "tool",
 				ToolCallID: tc.ID,
 				Content:    output,
+				Images:     images,
 			})
 			hasRunCommand = true
 		}

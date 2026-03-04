@@ -96,7 +96,7 @@ func main() {
 						"action": map[string]interface{}{
 							"type":        "string",
 							"enum":        []string{"scrape", "screenshot", "navigate", "click", "type", "scroll", "evaluate", "view_ax_tree"},
-							"description": "The action to perform. 'view_ax_tree' returns interactive elements.",
+							"description": "The action to perform. 'view_ax_tree' returns interactive elements in a table. Use 'value' to filter.",
 						},
 						"selector": map[string]interface{}{
 							"type":        "string",
@@ -104,7 +104,7 @@ func main() {
 						},
 						"value": map[string]interface{}{
 							"type":        "string",
-							"description": "Text to type or JS to evaluate.",
+							"description": "Text to type, JS to evaluate, or scroll direction: 'up', 'down', 'top', 'bottom', 'pageUp', 'pageDown'.",
 						},
 					},
 					"required": []string{"action"},
@@ -249,7 +249,7 @@ func main() {
 
 		if len(savedTempFiles) > 0 {
 			// Run file viewer with the response content as a tab
-			viewer := terminal.NewFileViewer(content, savedFiles)
+			viewer := terminal.NewFileViewer(content, finalModel.GetReasoning(), savedFiles)
 			vp := tea.NewProgram(viewer, tea.WithAltScreen())
 			if _, err := vp.Run(); err != nil {
 				fmt.Printf("Error running file viewer: %v\n", err)

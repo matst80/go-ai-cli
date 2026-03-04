@@ -16,6 +16,8 @@ type InputModel struct {
 	Err      error
 	Quitting bool
 	Aborted  bool
+	Title    string
+	Prompt   string
 }
 
 func NewInputModel() InputModel {
@@ -32,6 +34,8 @@ func NewInputModel() InputModel {
 		Err:      nil,
 		Quitting: false,
 		Aborted:  false,
+		Title:    "Type your prompt:",
+		Prompt:   "ctrl+s / ctrl+enter to submit • esc/ctrl+c to cancel • ctrl+v to paste",
 	}
 }
 
@@ -50,9 +54,14 @@ func (m InputModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.Quitting = true
 			m.Aborted = true
 			return m, tea.Quit
-		case tea.KeyCtrlD, tea.KeyCtrlS, tea.KeyCtrlCaret:
+		case tea.KeyCtrlD, tea.KeyCtrlS, tea.KeyCtrlCaret, tea.KeyCtrlJ:
 			m.Quitting = true
 			return m, tea.Quit
+		case tea.KeyEnter:
+			if msg.Alt {
+				m.Quitting = true
+				return m, tea.Quit
+			}
 		case tea.KeyCtrlV:
 			text := clipboard.Read(clipboard.FmtText)
 			if len(text) > 0 {
@@ -88,9 +97,10 @@ func (m InputModel) View() string {
 	}
 
 	return fmt.Sprintf(
-		"Type your prompt:\n\n%s\n\n%s%s\n",
+		"%s\n\n%s\n\n%s%s\n",
+		m.Title,
 		m.Textarea.View(),
-		helpStyle.Render("ctrl+enter to submit • esc/ctrl+c to cancel • ctrl+v to paste text/image"),
+		helpStyle.Render(m.Prompt),
 		helpStyle.Render(imgInfo),
 	)
 }

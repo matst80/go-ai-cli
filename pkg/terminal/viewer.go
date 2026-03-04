@@ -21,6 +21,7 @@ type SavedFile struct {
 
 type FileViewer struct {
 	response  string
+	reasoning string
 	files     []SavedFile
 	cursor    int
 	viewport  viewport.Model
@@ -34,14 +35,15 @@ type FileViewer struct {
 	clipboard string
 }
 
-func NewFileViewer(response string, files []SavedFile) *FileViewer {
+func NewFileViewer(response, reasoning string, files []SavedFile) *FileViewer {
 	ti := textinput.New()
 	ti.Placeholder = "Enter filename..."
 	return &FileViewer{
-		response: response,
-		files:    files,
-		cache:    make(map[int]string),
-		input:    ti,
+		response:  response,
+		reasoning: reasoning,
+		files:     files,
+		cache:     make(map[int]string),
+		input:     ti,
 	}
 }
 
@@ -181,6 +183,9 @@ func (m *FileViewer) updateViewport() {
 
 	if m.cursor == 0 {
 		content = m.response
+		if m.reasoning != "" {
+			content = "_Thinking..._\n" + m.reasoning + "\n\n---\n\n" + m.response
+		}
 	} else {
 		f := m.files[m.cursor-1]
 		ext := filepath.Ext(f.Path)
