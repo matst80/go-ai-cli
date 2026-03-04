@@ -188,16 +188,7 @@ func main() {
 		Tools:    tools,
 		Stream:   true,
 		Think:    cfg.Thinking,
-		Options: map[string]interface{}{
-			"temperature": 0.5,
-			"num_ctx":     16384, // Ensure enough room for long tool-calling sessions
-		},
-	}
-
-	if cfg != nil && cfg.ModelOptions != nil {
-		for k, v := range cfg.ModelOptions {
-			reqBody.Options[k] = v
-		}
+		Options:  cfg.ModelOptions,
 	}
 
 	if !isatty.IsTerminal(os.Stdout.Fd()) {

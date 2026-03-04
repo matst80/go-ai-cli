@@ -25,8 +25,8 @@ func TestConfigLoadSave(t *testing.T) {
 		URL:          "http://localhost:11434/api/chat",
 		Model:        "test-model",
 		Thinking:     true,
-		ModelOptions: map[string]interface{}{
-			"temperature": 0.7,
+		ModelOptions: config.ModelOptions{
+			NumCtx: 16384,
 		},
 	}
 
@@ -52,7 +52,7 @@ func TestConfigLoadSave(t *testing.T) {
 	if loaded.Thinking != cfg.Thinking {
 		t.Errorf("Expected Thinking %v, got %v", cfg.Thinking, loaded.Thinking)
 	}
-	if v, ok := loaded.ModelOptions["temperature"].(float64); !ok || v != 0.7 {
-		t.Errorf("Expected ModelOption temperature 0.7, got %v", loaded.ModelOptions["temperature"])
+	if loaded.ModelOptions.Temperature != cfg.ModelOptions.Temperature {
+		t.Errorf("Expected ModelOption temperature %v, got %v", cfg.ModelOptions.Temperature, loaded.ModelOptions.Temperature)
 	}
 }

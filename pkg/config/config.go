@@ -9,19 +9,28 @@ import (
 	"runtime"
 )
 
+type ModelOptions struct {
+	Temperature   float64 `json:"temperature,omitempty"`
+	NumCtx        int     `json:"num_ctx,omitempty"`
+	RepeatPenalty float64 `json:"repeat_penalty,omitempty"`
+	TopP          float64 `json:"top_p,omitempty"`
+	TopK          int     `json:"top_k,omitempty"`
+	NumPredict    int     `json:"num_predict,omitempty"`
+}
+
 // Config represents the application configuration
 type Config struct {
-	SystemPrompt string                 `json:"system_prompt,omitempty"`
-	Memory       []string               `json:"memory,omitempty"`
-	Yolo         bool                   `json:"yolo,omitempty"`
-	Style        string                 `json:"style,omitempty"`
-	URL          string                 `json:"url,omitempty"`
-	Model        string                 `json:"model,omitempty"`
-	ModelOptions map[string]interface{} `json:"model_options,omitempty"`
-	Thinking     bool                   `json:"thinking,omitempty"`
-	CDP          string                 `json:"-"` // Not saved to file
-	Resume       string                 `json:"-"` // Not saved to file
-	SaveSession  bool                   `json:"-"` // Not saved to file
+	SystemPrompt string       `json:"system_prompt,omitempty"`
+	Memory       []string     `json:"memory,omitempty"`
+	Yolo         bool         `json:"yolo,omitempty"`
+	Style        string       `json:"style,omitempty"`
+	URL          string       `json:"url,omitempty"`
+	Model        string       `json:"model,omitempty"`
+	ModelOptions ModelOptions `json:"model_options,omitempty"`
+	Thinking     bool         `json:"thinking,omitempty"`
+	CDP          string       `json:"-"` // Not saved to file
+	Resume       string       `json:"-"` // Not saved to file
+	SaveSession  bool         `json:"-"` // Not saved to file
 }
 
 // GetConfigPath returns the default configuration path (~/.ai-cli/config)
@@ -155,6 +164,11 @@ content
 	}
 	if cfg.Style == "" {
 		cfg.Style = "auto"
+	}
+
+	// Default num_ctx if not specified
+	if cfg.ModelOptions.NumCtx == 0 {
+		cfg.ModelOptions.NumCtx = 16384 // Default as set in main.go
 	}
 
 	// Sync back to Env for sub-packages
