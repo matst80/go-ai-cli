@@ -10,7 +10,6 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/glamour"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/matst80/go-ai-cli/pkg/config"
 	"github.com/matst80/go-ai-cli/pkg/ollama"
 )
 
@@ -359,132 +358,24 @@ func (u *UI) RunInteractiveSession() {
 		// Check for tool calls that need immediate execution
 		var toolResponses []ollama.Message
 		hasRunCommand := false
+		executor := NewToolExecutor()
+		uiHandler := &uiToolHandler{
+			ui: u,
+		}
 
 		for _, tc := range assistantMsg.ToolCalls {
-			switch tc.Function.Name {
-			case "execute":
-				var args struct {
-					Command string `json:"command"`
-				}
-				if err := ollama.ParseToolArguments(tc.Function.Arguments, &args); err == nil {
-					shouldRun := os.Getenv("AI_YOLO") == "true"
-					if !shouldRun {
-						ch := make(chan bool)
-						u.chunkChan <- confirmationMsg{Command: args.Command, Ch: ch}
-						select {
-						case shouldRun = <-ch:
-						case <-u.ctx.Done():
-							return
-						}
-						if !shouldRun {
-							u.chunkChan <- responseMsg(fmt.Sprintf("\n_Skip: %s_\n", args.Command))
-						}
-					}
-
-					var output string
-					if shouldRun {
-						u.chunkChan <- responseMsg(fmt.Sprintf("\n**Running:** `%s`\n", args.Command))
-						output, _ = RunCommand(args.Command)
-						if output != "" {
-							u.chunkChan <- responseMsg(fmt.Sprintf("```\n%s\n```\n", strings.TrimSpace(output)))
-						}
-					} else {
-						output = "Cancelled by user"
-					}
-
-					toolResponses = append(toolResponses, ollama.Message{
-						Role:       "tool",
-						ToolCallID: tc.ID,
-						Content:    output,
-					})
-					hasRunCommand = true
-				}
-			case "web_search":
-				var args struct {
-					Query   string `json:"query"`
-					Country string `json:"country"`
-					Count   int    `json:"count"`
-					Offset  int    `json:"offset"`
-				}
-				if err := ollama.ParseToolArguments(tc.Function.Arguments, &args); err == nil {
-					u.chunkChan <- responseMsg(fmt.Sprintf("\n**Searching:** `%s`\n", args.Query))
-					output, err := BraveSearch(args.Query, args.Country, args.Count, args.Offset)
-					if err != nil {
-						output = fmt.Sprintf("Error: %v", err)
-					}
-					u.chunkChan <- responseMsg(fmt.Sprintf("\n%s\n", output))
-
-					toolResponses = append(toolResponses, ollama.Message{
-						Role:       "tool",
-						ToolCallID: tc.ID,
-						Content:    output,
-					})
-					hasRunCommand = true
-				}
-			case "browser":
-				var args struct {
-					URL    string `json:"url"`
-					Action string `json:"action"`
-				}
-				if err := ollama.ParseToolArguments(tc.Function.Arguments, &args); err == nil {
-					u.chunkChan <- responseMsg(fmt.Sprintf("\n**Browsing:** `%s` *(%s)*\n", args.URL, args.Action))
-					output, err := ChromeCDP(args.URL, args.Action)
-					if err != nil {
-						output = fmt.Sprintf("Error: %v", err)
-					}
-					u.chunkChan <- responseMsg(fmt.Sprintf("\n%s\n", output))
-
-					toolResponses = append(toolResponses, ollama.Message{
-						Role:       "tool",
-						ToolCallID: tc.ID,
-						Content:    output,
-					})
-					hasRunCommand = true
-				}
-			case "remember":
-				var args struct {
-					Info string `json:"info"`
-				}
-				if err := ollama.ParseToolArguments(tc.Function.Arguments, &args); err == nil {
-					cfg, _ := config.Load()
-					if cfg == nil {
-						cfg = &config.Config{}
-					}
-					cfg.Memory = append(cfg.Memory, args.Info)
-					_ = cfg.Save()
-
-					u.chunkChan <- responseMsg(fmt.Sprintf("\n**Remembered:** %s\n", args.Info))
-
-					toolResponses = append(toolResponses, ollama.Message{
-						Role:       "tool",
-						ToolCallID: tc.ID,
-						Content:    "Memory saved",
-					})
-					hasRunCommand = true
-				}
-			case "set_system_prompt":
-				var args struct {
-					Prompt string `json:"prompt"`
-				}
-				if err := ollama.ParseToolArguments(tc.Function.Arguments, &args); err == nil {
-					cfg, _ := config.Load()
-					if cfg == nil {
-						cfg = &config.Config{}
-					}
-					cfg.SystemPrompt = args.Prompt
-					_ = cfg.Save()
-
-					u.chunkChan <- responseMsg("\n**System prompt updated**\n")
-
-					toolResponses = append(toolResponses, ollama.Message{
-						Role:       "tool",
-						ToolCallID: tc.ID,
-						Content:    "System prompt updated",
-					})
-					hasRunCommand = true
-				}
-
+			output, err := executor.HandleToolCall(u.ctx, tc, uiHandler)
+			if err != nil {
+				// Handle specific parse errors or unknown tools gracefully
+				continue
 			}
+
+			toolResponses = append(toolResponses, ollama.Message{
+				Role:       "tool",
+				ToolCallID: tc.ID,
+				Content:    output,
+			})
+			hasRunCommand = true
 		}
 
 		if !hasRunCommand {
@@ -548,5 +439,46 @@ func (u *UI) ToolWasCalled() bool    { return u.toolWasCalled }
 func (u *UI) GetSavedFiles() []SavedFile {
 	return u.savedFiles
 }
+func (u *UI) GetMessages() []ollama.Message {
+	return u.request.Messages
+}
 
 func (u *UI) ChunkChan() chan tea.Msg { return u.chunkChan }
+
+// uiToolHandler implements ToolUI for the Bubble Tea interactive UI
+type uiToolHandler struct {
+	ui *UI
+}
+
+func (h *uiToolHandler) ConfirmCommand(cmd string) bool {
+	shouldRun := os.Getenv("AI_YOLO") == "true"
+	if !shouldRun {
+		ch := make(chan bool)
+		h.ui.chunkChan <- confirmationMsg{Command: cmd, Ch: ch}
+		select {
+		case shouldRun = <-ch:
+		case <-h.ui.ctx.Done():
+			return false
+		}
+		if !shouldRun {
+			h.ui.chunkChan <- responseMsg(fmt.Sprintf("\n_Skip: %s_\n", cmd))
+		}
+	}
+	return shouldRun
+}
+
+func (h *uiToolHandler) LogActivity(activity string) {
+	h.ui.chunkChan <- responseMsg(fmt.Sprintf("\n%s\n", activity))
+}
+
+func (h *uiToolHandler) LogOutput(output string) {
+	if output != "" {
+		if strings.HasPrefix(output, "```") {
+			h.ui.chunkChan <- responseMsg(fmt.Sprintf("%s\n", output))
+		} else if strings.Contains(output, "\n") {
+			h.ui.chunkChan <- responseMsg(fmt.Sprintf("\n```\n%s\n```\n", strings.TrimSpace(output)))
+		} else {
+			h.ui.chunkChan <- responseMsg(fmt.Sprintf("\n%s\n", output))
+		}
+	}
+}

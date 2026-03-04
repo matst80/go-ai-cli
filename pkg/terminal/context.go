@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/matst80/go-ai-cli/pkg/config"
 	"github.com/matst80/go-ai-cli/pkg/ollama"
 )
 
@@ -16,12 +17,8 @@ func ManageContext(ctx context.Context, client *ollama.Client, req *ollama.ChatR
 	}
 
 	numCtx := 16384 // Default
-	if req.Options != nil {
-		if val, ok := req.Options["num_ctx"].(int); ok {
-			numCtx = val
-		} else if val, ok := req.Options["num_ctx"].(float64); ok {
-			numCtx = int(val)
-		}
+	if req.Options.NumCtx != 0 {
+		numCtx = req.Options.NumCtx
 	}
 
 	// Calculate approximate token count (chars / 4)
@@ -111,9 +108,9 @@ func ManageContext(ctx context.Context, client *ollama.Client, req *ollama.ChatR
 			},
 		},
 		Stream: false,
-		Options: map[string]interface{}{
-			"temperature": 0.3, // Lower temp for factual summary
-			"num_ctx":     numCtx,
+		Options: config.ModelOptions{
+			Temperature: 0.3, // Lower temp for factual summary
+			NumCtx:      numCtx,
 		},
 	}
 

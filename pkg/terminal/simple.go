@@ -6,12 +6,11 @@ import (
 	"os"
 	"strings"
 
-	"github.com/matst80/go-ai-cli/pkg/config"
 	"github.com/matst80/go-ai-cli/pkg/ollama"
 )
 
 // RunSimpleSession provides a non-interactive output for non-TTY or fallback
-func RunSimpleSession(client *ollama.Client, req ollama.ChatRequest) (string, error) {
+func RunSimpleSession(client *ollama.Client, req ollama.ChatRequest) (string, []ollama.Message, error) {
 	var preparedCmd string
 	for {
 		summarized, _ := ManageContext(context.Background(), client, &req)
@@ -71,125 +70,57 @@ func RunSimpleSession(client *ollama.Client, req ollama.ChatRequest) (string, er
 		var toolResponses []ollama.Message
 		hasRunCommand := false
 
+		executor := NewToolExecutor()
+		uiHandler := &simpleToolHandler{}
+
 		for _, tc := range assistantMsg.ToolCalls {
-			switch tc.Function.Name {
-			case "execute":
-				var args struct {
-					Command string `json:"command"`
-				}
-				if err := ollama.ParseToolArguments(tc.Function.Arguments, &args); err == nil {
-					if os.Getenv("AI_YOLO") == "true" {
-						fmt.Printf("\n> Running: %s...\n", args.Command)
-						output, _ := RunCommand(args.Command)
-						if output != "" {
-							fmt.Printf("```\n%s\n```\n", strings.TrimSpace(output))
-						}
-						toolResponses = append(toolResponses, ollama.Message{
-							Role:       "tool",
-							ToolCallID: tc.ID,
-							Content:    output,
-						})
-					} else {
-						fmt.Printf("\n> Skip: %s (use --yolo to run in non-interactive mode)\n", args.Command)
-						toolResponses = append(toolResponses, ollama.Message{
-							Role:       "tool",
-							ToolCallID: tc.ID,
-							Content:    "Skipped: non-interactive mode without --yolo",
-						})
-					}
-					hasRunCommand = true
-				}
-			case "web_search":
-				var args struct {
-					Query   string `json:"query"`
-					Country string `json:"country"`
-					Count   int    `json:"count"`
-					Offset  int    `json:"offset"`
-				}
-				if err := ollama.ParseToolArguments(tc.Function.Arguments, &args); err == nil {
-					fmt.Printf("\n> Searching: %s...\n", args.Query)
-					output, err := BraveSearch(args.Query, args.Country, args.Count, args.Offset)
-					if err != nil {
-						output = fmt.Sprintf("Error: %v", err)
-					}
-					fmt.Printf("\n%s\n", output)
-					toolResponses = append(toolResponses, ollama.Message{
-						Role:       "tool",
-						ToolCallID: tc.ID,
-						Content:    output,
-					})
-					hasRunCommand = true
-				}
-			case "browser":
-				var args struct {
-					URL    string `json:"url"`
-					Action string `json:"action"`
-				}
-				if err := ollama.ParseToolArguments(tc.Function.Arguments, &args); err == nil {
-					fmt.Printf("\n> Browsing: %s (%s)...\n", args.URL, args.Action)
-					output, err := ChromeCDP(args.URL, args.Action)
-					if err != nil {
-						output = fmt.Sprintf("Error: %v", err)
-					}
-					fmt.Printf("\n%s\n", output)
-					toolResponses = append(toolResponses, ollama.Message{
-						Role:       "tool",
-						ToolCallID: tc.ID,
-						Content:    output,
-					})
-					hasRunCommand = true
-				}
-			case "remember":
-				var args struct {
-					Info string `json:"info"`
-				}
-				if err := ollama.ParseToolArguments(tc.Function.Arguments, &args); err == nil {
-					cfg, _ := config.Load()
-					if cfg == nil {
-						cfg = &config.Config{}
-					}
-					cfg.Memory = append(cfg.Memory, args.Info)
-					_ = cfg.Save()
-
-					fmt.Printf("\n> Remembered: %s\n", args.Info)
-
-					toolResponses = append(toolResponses, ollama.Message{
-						Role:       "tool",
-						ToolCallID: tc.ID,
-						Content:    "Memory saved",
-					})
-					hasRunCommand = true
-				}
-			case "set_system_prompt":
-				var args struct {
-					Prompt string `json:"prompt"`
-				}
-				if err := ollama.ParseToolArguments(tc.Function.Arguments, &args); err == nil {
-					cfg, _ := config.Load()
-					if cfg == nil {
-						cfg = &config.Config{}
-					}
-					cfg.SystemPrompt = args.Prompt
-					_ = cfg.Save()
-
-					fmt.Printf("\n> System prompt updated\n")
-
-					toolResponses = append(toolResponses, ollama.Message{
-						Role:       "tool",
-						ToolCallID: tc.ID,
-						Content:    "System prompt updated",
-					})
-					hasRunCommand = true
-				}
+			output, err := executor.HandleToolCall(context.Background(), tc, uiHandler)
+			if err != nil {
+				continue
 			}
+			toolResponses = append(toolResponses, ollama.Message{
+				Role:       "tool",
+				ToolCallID: tc.ID,
+				Content:    output,
+			})
+			hasRunCommand = true
 		}
 
 		if !hasRunCommand {
 			fmt.Println()
-			return preparedCmd, nil
+			return preparedCmd, req.Messages, nil
 		}
 
 		// Append tool responses and loop
 		req.Messages = append(req.Messages, toolResponses...)
+	}
+}
+
+// simpleToolHandler implements ToolUI for the simple non-interactive UI
+type simpleToolHandler struct{}
+
+func (h *simpleToolHandler) ConfirmCommand(cmd string) bool {
+	shouldRun := os.Getenv("AI_YOLO") == "true"
+	if !shouldRun {
+		fmt.Printf("\n> Skip: %s (use --yolo to run in non-interactive mode)\n", cmd)
+	}
+	return shouldRun
+}
+
+func (h *simpleToolHandler) LogActivity(activity string) {
+	// Strip markdown formatting since it's simple output
+	activity = strings.ReplaceAll(activity, "**", "")
+	activity = strings.ReplaceAll(activity, "`", "")
+	activity = strings.ReplaceAll(activity, "*", "")
+	fmt.Printf("\n> %s...\n", activity)
+}
+
+func (h *simpleToolHandler) LogOutput(output string) {
+	if output != "" {
+		if strings.Contains(output, "\n") && !strings.HasPrefix(output, "```") {
+			fmt.Printf("```\n%s\n```\n", strings.TrimSpace(output))
+		} else {
+			fmt.Printf("\n%s\n", output)
+		}
 	}
 }

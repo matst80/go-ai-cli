@@ -9,18 +9,28 @@ import (
 	"runtime"
 )
 
+type ModelOptions struct {
+	Temperature   float64 `json:"temperature,omitempty"`
+	NumCtx        int     `json:"num_ctx,omitempty"`
+	RepeatPenalty float64 `json:"repeat_penalty,omitempty"`
+	TopP          float64 `json:"top_p,omitempty"`
+	TopK          int     `json:"top_k,omitempty"`
+	NumPredict    int     `json:"num_predict,omitempty"`
+}
+
 // Config represents the application configuration
 type Config struct {
-	SystemPrompt string                 `json:"system_prompt,omitempty"`
-	Memory       []string               `json:"memory,omitempty"`
-	Yolo         bool                   `json:"yolo,omitempty"`
-	Style        string                 `json:"style,omitempty"`
-	URL          string                 `json:"url,omitempty"`
-	Model        string                 `json:"model,omitempty"`
-	ModelOptions map[string]interface{} `json:"model_options,omitempty"`
-	Thinking     bool                   `json:"thinking,omitempty"`
-	CDP          string                 `json:"-"` // Not saved to file
-	NumCtx       int                    `json:"num_ctx,omitempty"`
+	SystemPrompt string       `json:"system_prompt,omitempty"`
+	Memory       []string     `json:"memory,omitempty"`
+	Yolo         bool         `json:"yolo,omitempty"`
+	Style        string       `json:"style,omitempty"`
+	URL          string       `json:"url,omitempty"`
+	Model        string       `json:"model,omitempty"`
+	ModelOptions ModelOptions `json:"model_options,omitempty"`
+	Thinking     bool         `json:"thinking,omitempty"`
+	CDP          string       `json:"-"` // Not saved to file
+	Resume       string       `json:"-"` // Not saved to file
+	SaveSession  bool         `json:"-"` // Not saved to file
 }
 
 // GetConfigPath returns the default configuration path (~/.ai-cli/config)
@@ -81,6 +91,8 @@ content
 	var urlFlag *string
 	var modelFlag *string
 	var thinkingFlag *bool
+	var resumeFlag *string
+	var saveFlag *bool
 
 	if flag.Lookup("cdp") == nil {
 		cdpFlag = flag.String("cdp", cfg.CDP, "Remote CDP URL or port (e.g. 9222 or localhost:9222)")
@@ -89,6 +101,8 @@ content
 		thinkingFlag = flag.Bool("thinking", cfg.Thinking, "Enable thinking/reasoning for Ollama")
 		urlFlag = flag.String("url", cfg.URL, "Ollama API URL")
 		modelFlag = flag.String("model", cfg.Model, "Ollama model name")
+		resumeFlag = flag.String("resume", "", "Resume a session by ID or 'last'")
+		saveFlag = flag.Bool("save", false, "Save the session")
 	} else {
 		// Replace values if already defined (for tests or multiple calls)
 		cf := flag.Lookup("cdp")
@@ -103,6 +117,10 @@ content
 		_ = uf.Value.Set(cfg.URL)
 		mf := flag.Lookup("model")
 		_ = mf.Value.Set(cfg.Model)
+		rf := flag.Lookup("resume")
+		_ = rf.Value.Set(cfg.Resume)
+		saf := flag.Lookup("save")
+		_ = saf.Value.Set(fmt.Sprintf("%v", cfg.SaveSession))
 
 		// Create local pointers to match original logic
 		cdpStr := cf.Value.String()
@@ -117,6 +135,10 @@ content
 		urlFlag = &urlStr
 		modelStr := mf.Value.String()
 		modelFlag = &modelStr
+		resumeStr := rf.Value.String()
+		resumeFlag = &resumeStr
+		saveVal := saf.Value.(flag.Getter).Get().(bool)
+		saveFlag = &saveVal
 	}
 
 	if !flag.Parsed() {
@@ -130,6 +152,8 @@ content
 	cfg.Thinking = *thinkingFlag
 	cfg.URL = *urlFlag
 	cfg.Model = *modelFlag
+	cfg.Resume = *resumeFlag
+	cfg.SaveSession = *saveFlag
 
 	// Hardcoded defaults
 	if cfg.URL == "" {
@@ -143,18 +167,8 @@ content
 	}
 
 	// Default num_ctx if not specified
-	if cfg.NumCtx == 0 {
-		if val, ok := cfg.ModelOptions["num_ctx"].(float64); ok {
-			cfg.NumCtx = int(val)
-		} else {
-			cfg.NumCtx = 16384 // Default as set in main.go
-		}
-	} else {
-		// Ensure ModelOptions reflects NumCtx if NumCtx is set directly
-		if cfg.ModelOptions == nil {
-			cfg.ModelOptions = make(map[string]interface{})
-		}
-		cfg.ModelOptions["num_ctx"] = cfg.NumCtx
+	if cfg.ModelOptions.NumCtx == 0 {
+		cfg.ModelOptions.NumCtx = 16384 // Default as set in main.go
 	}
 
 	// Sync back to Env for sub-packages

@@ -9,6 +9,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/matst80/go-ai-cli/pkg/config"
 	"github.com/matst80/go-ai-cli/pkg/ollama"
+	"github.com/matst80/go-ai-cli/pkg/sessions"
 	"github.com/matst80/go-ai-cli/pkg/terminal"
 	"github.com/mattn/go-isatty"
 )
@@ -37,8 +38,27 @@ func main() {
 	}
 
 	if prompt == "" && len(images) == 0 {
-		fmt.Println("Usage: ai [--cdp <url/port>] [--style <style>] [--yolo] [--thinking] [--url <url>] [--model <model>] <prompt> [files...]")
-		os.Exit(1)
+		if len(os.Args) > 1 && (os.Args[1] == "-h" || os.Args[1] == "--help") {
+			fmt.Println("Usage: ai [--cdp <url/port>] [--style <style>] [--yolo] [--thinking] [--url <url>] [--model <model>] <prompt> [files...]")
+			os.Exit(0)
+		}
+
+		terminal.InitClipboard()
+		m := terminal.NewInputModel()
+		p := tea.NewProgram(m)
+		result, err := p.Run()
+		if err != nil {
+			fmt.Printf("Error running interactive input: %v\n", err)
+			os.Exit(1)
+		}
+
+		inputModel := result.(terminal.InputModel)
+		if inputModel.WasAborted() || (inputModel.Value() == "" && len(inputModel.AttachedImages()) == 0) {
+			os.Exit(0)
+		}
+
+		prompt = inputModel.Value()
+		images = inputModel.AttachedImages()
 	}
 
 	client := ollama.NewClient(cfg.URL)
@@ -138,40 +158,55 @@ func main() {
 		systemPrompt += "\n\n" + strings.Join(cfg.Memory, "\n")
 	}
 
-	reqBody := ollama.ChatRequest{
-		Model: cfg.Model,
-		Messages: []ollama.Message{
-			{
-				Role:    "system",
-				Content: systemPrompt,
-			},
-			{
-				Role:    "user",
-				Content: prompt,
-				Images:  images,
-			},
-		},
-		Tools:  tools,
-		Stream: true,
-		Think:  cfg.Thinking,
-		Options: map[string]interface{}{
-			"temperature": 0.5,
-			"num_ctx":     cfg.NumCtx,
+	messages := []ollama.Message{
+		{
+			Role:    "system",
+			Content: systemPrompt,
 		},
 	}
 
-	if cfg != nil && cfg.ModelOptions != nil {
-		for k, v := range cfg.ModelOptions {
-			reqBody.Options[k] = v
+	if cfg.Resume != "" {
+		session, err := sessions.LoadSession(cfg.Resume)
+		if err == nil && session != nil {
+			messages = append(messages, session.Messages...)
+			cfg.Resume = session.ID // Ensure we save back to the same ID if "last" was used
+			fmt.Printf("Resumed session %s\n", session.ID)
+		} else {
+			fmt.Printf("Failed to resume session: %v\n", err)
 		}
 	}
 
+	messages = append(messages, ollama.Message{
+		Role:    "user",
+		Content: prompt,
+		Images:  images,
+	})
+
+	reqBody := ollama.ChatRequest{
+		Model:    cfg.Model,
+		Messages: messages,
+		Tools:    tools,
+		Stream:   true,
+		Think:    cfg.Thinking,
+		Options:  cfg.ModelOptions,
+	}
+
 	if !isatty.IsTerminal(os.Stdout.Fd()) {
-		cmd, err := terminal.RunSimpleSession(client, reqBody)
+		cmd, finalMessages, err := terminal.RunSimpleSession(client, reqBody)
 		if err != nil {
 			fmt.Printf("Error: %v\n", err)
 			os.Exit(1)
 		}
+
+		if cfg.SaveSession {
+			id, err := sessions.SaveSession(cfg.Resume, finalMessages)
+			if err != nil {
+				fmt.Printf("\nError saving session: %v\n", err)
+			} else {
+				fmt.Printf("\n💾 Session saved as: %s\n", id)
+			}
+		}
+
 		if cmd != "" {
 			terminal.HandleSuggestedCommand(cmd)
 		}
@@ -214,18 +249,15 @@ func main() {
 			if _, err := vp.Run(); err != nil {
 				fmt.Printf("Error running file viewer: %v\n", err)
 			}
-		} else if content != "" {
-			// Just show content regular if no files
-			fmt.Print("\n" + finalModel.View())
 		}
 
-		// cmd := finalModel.GetPreparedCmd()
-		// if cmd == "" && finalModel.GetContent() != "" {
-		// 	cmd = terminal.ExtractCommandFromMarkdown(finalModel.GetContent())
-		// }
-
-		// if cmd != "" {
-		// 	terminal.HandleSuggestedCommand(cmd)
-		// }
+		if cfg.SaveSession {
+			id, err := sessions.SaveSession(cfg.Resume, finalModel.GetMessages())
+			if err != nil {
+				fmt.Printf("\nError saving session: %v\n", err)
+			} else {
+				fmt.Printf("\n💾 Session saved as: %s\n", id)
+			}
+		}
 	}
 }
