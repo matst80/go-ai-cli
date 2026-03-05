@@ -133,6 +133,19 @@ func (m *FileViewer) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			CopyToClipboard(text)
 			m.clipboard = "Copied to clipboard!"
 			return m, nil
+		case "C":
+			var sb strings.Builder
+			sb.WriteString("# Response\n\n")
+			sb.WriteString(m.response)
+			sb.WriteString("\n\n")
+			for _, f := range m.files {
+				sb.WriteString(fmt.Sprintf("# File: %s\n\n", f.Path))
+				sb.WriteString(f.Content)
+				sb.WriteString("\n\n")
+			}
+			CopyToClipboard(sb.String())
+			m.clipboard = "All tabs copied to clipboard!"
+			return m, nil
 		case "1", "2", "3", "4", "5", "6", "7", "8", "9":
 			idx := int(msg.String()[0] - '1')
 			if idx <= len(m.files) {
@@ -269,7 +282,7 @@ func (m *FileViewer) View() string {
 
 	footer := lipgloss.NewStyle().
 		Foreground(lipgloss.Color("240")).
-		Render(fmt.Sprintf(" %d/%d • q: quit • tab/h/l: tabs • j/k: scroll • s: save • c: copy • 1-9: switch", m.cursor+1, len(m.files)+1))
+		Render(fmt.Sprintf(" %d/%d • q: quit • tab/h/l: tabs • j/k: scroll • s: save • c: copy • C: copy all • 1-9: switch", m.cursor+1, len(m.files)+1))
 
 	view := fmt.Sprintf("%s\n%s\n%s\n%s",
 		header.String(),

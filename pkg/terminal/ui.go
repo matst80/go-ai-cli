@@ -114,6 +114,7 @@ type UI struct {
 	contentDirty      bool
 	isActive          bool
 	isRendering       bool
+	clipboardMsg      string
 }
 
 // Msg types for Bubble Tea
@@ -206,6 +207,10 @@ func (u *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				u.moreInputCh = nil
 				go func() { ch <- "" }()
 				return u, nil
+			} else if msg.String() == "c" {
+				CopyToClipboard(u.content)
+				u.clipboardMsg = "Full conversation copied to clipboard!"
+				return u, nil
 			}
 		} else if u.inputMode {
 			if msg.Type == tea.KeyCtrlC || msg.Type == tea.KeyEsc {
@@ -228,6 +233,12 @@ func (u *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return u, u.spinner.Tick
 			}
 			return u, cmd
+		}
+
+		if msg.String() == "c" {
+			CopyToClipboard(u.content)
+			u.clipboardMsg = "Full conversation copied to clipboard!"
+			return u, nil
 		}
 	case tea.WindowSizeMsg:
 		u.width = msg.Width
@@ -453,7 +464,7 @@ func (u *UI) FullView() string {
 			headerStyle.Render("Run command:"),
 			infoStyle.Render(u.confirmCmd),
 			lipgloss.NewStyle().Foreground(lipgloss.Color("245")).Italic(true).Render("(copied to clipboard)"),
-			choices)
+			choices+lipgloss.NewStyle().Foreground(lipgloss.Color("240")).Render(" • c: copy all"))
 
 		promptView := "\n" + borderStyle.Render(prompt) + "\n"
 		if u.content == "" && u.reasoning == "" {
@@ -465,7 +476,7 @@ func (u *UI) FullView() string {
 	} else if u.askMoreInput {
 		prompt := fmt.Sprintf("💬 %s %s",
 			headerStyle.Render("More input?"),
-			lipgloss.NewStyle().Foreground(lipgloss.Color("240")).Render("[y/N]"))
+			lipgloss.NewStyle().Foreground(lipgloss.Color("240")).Render("[y/N] • c: copy all"))
 		out += "\n" + borderStyle.Render(prompt) + "\n"
 	} else if u.inputMode {
 		out += "\n" + borderStyle.Render(u.inputModel.View()) + "\n"
@@ -473,6 +484,11 @@ func (u *UI) FullView() string {
 	if u.err != nil {
 		out += fmt.Sprintf("\n%s\n", errorStyle.Render(fmt.Sprintf("Error: %v", u.err)))
 	}
+
+	if u.clipboardMsg != "" {
+		out += "\n" + lipgloss.NewStyle().Foreground(lipgloss.Color("2")).Render(" "+u.clipboardMsg)
+	}
+
 	return out
 }
 
