@@ -11,6 +11,7 @@ import (
 	"github.com/matst80/go-ai-cli/pkg/ollama"
 	"github.com/matst80/go-ai-cli/pkg/sessions"
 	"github.com/matst80/go-ai-cli/pkg/terminal"
+	"github.com/matst80/go-ai-cli/pkg/ui"
 	"github.com/mattn/go-isatty"
 )
 
@@ -43,8 +44,8 @@ func main() {
 			os.Exit(0)
 		}
 
-		terminal.InitClipboard()
-		m := terminal.NewInputModel()
+		ui.InitClipboard()
+		m := ui.NewInputModel()
 		p := tea.NewProgram(m)
 		result, err := p.Run()
 		if err != nil {
@@ -52,7 +53,7 @@ func main() {
 			os.Exit(1)
 		}
 
-		inputModel := result.(terminal.InputModel)
+		inputModel := result.(ui.InputModel)
 		if inputModel.WasAborted() || (inputModel.Value() == "" && len(inputModel.AttachedImages()) == 0) {
 			os.Exit(0)
 		}
@@ -222,12 +223,12 @@ func main() {
 		return
 	}
 
-	ui := terminal.NewUI(client, reqBody)
-	p := tea.NewProgram(ui, tea.WithMouseCellMotion())
-	ui.SetSender(p.Send)
+	uiModel := ui.NewUI(client, reqBody)
+	p := tea.NewProgram(uiModel, tea.WithMouseCellMotion())
+	uiModel.SetSender(p.Send)
 
 	// Start logic loop
-	go ui.RunInteractiveSession()
+	go uiModel.RunInteractiveSession()
 
 	res, err := p.Run()
 	if err != nil {
@@ -235,7 +236,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	if finalModel, ok := res.(*terminal.UI); ok {
+	if finalModel, ok := res.(*ui.UI); ok {
 		savedFiles := finalModel.GetSavedFiles()
 		content := finalModel.GetContent()
 
@@ -245,7 +246,7 @@ func main() {
 
 		if len(savedTempFiles) > 0 {
 			// Run file viewer with the response content as a tab
-			viewer := terminal.NewFileViewer(content, finalModel.GetReasoning(), savedFiles)
+			viewer := ui.NewFileViewer(content, finalModel.GetReasoning(), savedFiles)
 			vp := tea.NewProgram(viewer, tea.WithAltScreen())
 			if _, err := vp.Run(); err != nil {
 				fmt.Printf("Error running file viewer: %v\n", err)

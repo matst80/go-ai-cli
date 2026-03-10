@@ -7,6 +7,8 @@ import (
 	"strings"
 
 	"github.com/matst80/go-ai-cli/pkg/ollama"
+	"github.com/matst80/go-ai-cli/pkg/render"
+	"github.com/matst80/go-ai-cli/pkg/tools"
 )
 
 // RunSimpleSession provides a non-interactive output for non-TTY or fallback
@@ -24,7 +26,7 @@ func RunSimpleSession(client *ollama.Client, req ollama.ChatRequest) (string, []
 		var assistantMsg ollama.Message
 		assistantMsg.Role = "assistant"
 
-		sh := NewStreamHandler(
+		sh := render.NewStreamHandler(
 			func(text string) { fmt.Print(text) },
 			func(filename, content string, isTemp bool) {
 				if isTemp {
@@ -69,7 +71,7 @@ func RunSimpleSession(client *ollama.Client, req ollama.ChatRequest) (string, []
 		var toolResponses []ollama.Message
 		hasRunCommand := false
 
-		executor := NewToolExecutor()
+		executor := tools.NewToolExecutor()
 		uiHandler := &simpleToolHandler{}
 
 		for _, tc := range assistantMsg.ToolCalls {

@@ -1,13 +1,11 @@
 package terminal
 
 import (
-	"context"
 	"encoding/base64"
 	"fmt"
 	"io"
 	"net/http"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -17,24 +15,6 @@ import (
 
 	"github.com/mattn/go-isatty"
 )
-
-// RunCommand executes a shell command and returns output with a 60-second timeout
-func RunCommand(command string) (string, error) {
-	if command == "" {
-		return "no command provided?", nil
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
-	defer cancel()
-
-	cmd := exec.CommandContext(ctx, "bash")
-	cmd.Stdin = strings.NewReader(command)
-
-	output, err := cmd.CombinedOutput()
-	if ctx.Err() == context.DeadlineExceeded {
-		return string(output) + "\nError: Command timed out after 60s", ctx.Err()
-	}
-	return string(output), err
-}
 
 // CreateFile creates a file with the given name and content
 func CreateFile(filename, content string) error {
@@ -197,4 +177,10 @@ func ProcessInputs(args []string) (string, []string, error) {
 	}
 
 	return prompt, images, nil
+}
+
+type SavedFile struct {
+	Path    string
+	Content string
+	IsTemp  bool
 }

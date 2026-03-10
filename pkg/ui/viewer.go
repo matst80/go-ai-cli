@@ -1,4 +1,4 @@
-package terminal
+package ui
 
 import (
 	"fmt"
@@ -11,18 +11,14 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/glamour"
 	"github.com/charmbracelet/lipgloss"
-)
 
-type SavedFile struct {
-	Path    string
-	Content string
-	IsTemp  bool
-}
+	"github.com/matst80/go-ai-cli/pkg/terminal"
+)
 
 type FileViewer struct {
 	response  string
 	reasoning string
-	files     []SavedFile
+	files     []terminal.SavedFile
 	cursor    int
 	viewport  viewport.Model
 	width     int
@@ -35,7 +31,7 @@ type FileViewer struct {
 	clipboard string
 }
 
-func NewFileViewer(response, reasoning string, files []SavedFile) *FileViewer {
+func NewFileViewer(response, reasoning string, files []terminal.SavedFile) *FileViewer {
 	ti := textinput.New()
 	ti.Placeholder = "Enter filename..."
 	return &FileViewer{
@@ -130,7 +126,7 @@ func (m *FileViewer) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			} else {
 				text = m.files[m.cursor-1].Content
 			}
-			CopyToClipboard(text)
+			terminal.CopyToClipboard(text)
 			m.clipboard = "Copied to clipboard!"
 			return m, nil
 		case "C":
@@ -143,7 +139,7 @@ func (m *FileViewer) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				sb.WriteString(f.Content)
 				sb.WriteString("\n\n")
 			}
-			CopyToClipboard(sb.String())
+			terminal.CopyToClipboard(sb.String())
 			m.clipboard = "All tabs copied to clipboard!"
 			return m, nil
 		case "1", "2", "3", "4", "5", "6", "7", "8", "9":

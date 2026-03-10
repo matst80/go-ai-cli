@@ -1,4 +1,4 @@
-package terminal
+package ui
 
 import (
 	"context"
@@ -11,65 +11,12 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/glamour"
 	"github.com/charmbracelet/lipgloss"
+
 	"github.com/matst80/go-ai-cli/pkg/ollama"
+	"github.com/matst80/go-ai-cli/pkg/render"
+	"github.com/matst80/go-ai-cli/pkg/terminal"
+	"github.com/matst80/go-ai-cli/pkg/tools"
 )
-
-var (
-	headerStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("62")).
-			Bold(true).
-			PaddingRight(1)
-	infoStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("205")).
-			Bold(true)
-	skipStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("240"))
-	borderStyle = lipgloss.NewStyle().
-			Border(lipgloss.RoundedBorder()).
-			BorderForeground(lipgloss.Color("62")).
-			Padding(0, 1)
-	errorStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("9")).
-			Bold(true)
-)
-
-// escapeHTMLOutsideCodeBlocks escapes '<' to prevent markdown parser from eating unknown HTML tags
-func escapeHTMLOutsideCodeBlocks(content string) string {
-	var result strings.Builder
-	inCodeBlock := false
-	inInlineCode := false
-
-	lines := strings.Split(content, "\n")
-	for i, line := range lines {
-		trimmed := strings.TrimSpace(line)
-		if strings.HasPrefix(trimmed, "```") {
-			inCodeBlock = !inCodeBlock
-		} else if !inCodeBlock {
-			line = processInlineCode(line, &inInlineCode)
-		}
-
-		result.WriteString(line)
-		if i < len(lines)-1 {
-			result.WriteString("\n")
-		}
-	}
-	return result.String()
-}
-
-func processInlineCode(line string, inInlineCode *bool) string {
-	var processed strings.Builder
-	chars := []rune(line)
-	for j := 0; j < len(chars); j++ {
-		if chars[j] == '`' {
-			*inInlineCode = !*inInlineCode
-		} else if chars[j] == '<' && !*inInlineCode {
-			processed.WriteString("\\<")
-			continue
-		}
-		processed.WriteRune(chars[j])
-	}
-	return processed.String()
-}
 
 // UI represents the tool's Bubble Tea model and methods
 type UI struct {
@@ -90,7 +37,7 @@ type UI struct {
 	ctx               context.Context
 	cancel            context.CancelFunc
 	spinner           spinner.Model
-	savedFiles        []SavedFile
+	savedFiles        []terminal.SavedFile
 	askMoreInput      bool
 	inputMode         bool
 	inputModel        InputModel
@@ -112,26 +59,6 @@ type UI struct {
 	clipboardMsg      string
 }
 
-// Msg types for Bubble Tea
-type responseMsg string
-type reasoningMsg string
-type toolCallMsg []ollama.ToolCall
-type errorMsg error
-type doneMsg bool
-type confirmationMsg struct {
-	Command string
-	Ch      chan bool
-}
-type fileSavedMsg struct {
-	Filename string
-	Content  string
-	IsTemp   bool
-}
-type commandMsg string
-type summarizingMsg bool
-type moreInputMsg chan string
-type busyMsg bool
-
 // NewUI creates a new UI model
 func NewUI(client *ollama.Client, req ollama.ChatRequest) *UI {
 	ctx, cancel := context.WithCancel(context.Background())
@@ -145,7 +72,7 @@ func NewUI(client *ollama.Client, req ollama.ChatRequest) *UI {
 		cancel:      cancel,
 		spinner:     s,
 		summarizing: false,
-		savedFiles:  make([]SavedFile, 0),
+		savedFiles:  make([]terminal.SavedFile, 0),
 		isActive:    true,
 	}
 }
@@ -222,7 +149,7 @@ func (u *UI) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 
 	if msg.String() == "c" {
-		CopyToClipboard(u.content)
+		terminal.CopyToClipboard(u.content)
 		u.clipboardMsg = "Full conversation copied to clipboard!"
 	}
 	return u, nil
@@ -258,7 +185,7 @@ func (u *UI) handleAskMoreInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return u, nil
 	}
 	if input == "c" {
-		CopyToClipboard(u.content)
+		terminal.CopyToClipboard(u.content)
 		u.clipboardMsg = "Full conversation copied to clipboard!"
 	}
 	return u, nil
@@ -397,7 +324,7 @@ func (u *UI) handleErrorMsg(msg errorMsg) (tea.Model, tea.Cmd) {
 }
 
 func (u *UI) handleFileSavedMsg(msg fileSavedMsg) (tea.Model, tea.Cmd) {
-	u.savedFiles = append(u.savedFiles, SavedFile{
+	u.savedFiles = append(u.savedFiles, terminal.SavedFile{
 		Path:    msg.Filename,
 		Content: msg.Content,
 		IsTemp:  msg.IsTemp,
@@ -407,7 +334,7 @@ func (u *UI) handleFileSavedMsg(msg fileSavedMsg) (tea.Model, tea.Cmd) {
 
 func (u *UI) handleCommandMsg(msg commandMsg) (tea.Model, tea.Cmd) {
 	u.preparedCmd = string(msg)
-	CopyToClipboard(string(msg))
+	terminal.CopyToClipboard(string(msg))
 	return u, nil
 }
 
@@ -485,7 +412,7 @@ func (u *UI) renderBackground() tea.Cmd {
 			if strings.Count(displayContent, "```")%2 != 0 {
 				displayContent += "\n```"
 			}
-			displayContent = escapeHTMLOutsideCodeBlocks(displayContent)
+			displayContent = render.EscapeHTMLOutsideCodeBlocks(displayContent)
 			if rContent != nil {
 				renderedContent, err = rContent.Render(displayContent)
 				if err != nil {
@@ -505,15 +432,6 @@ func (u *UI) renderBackground() tea.Cmd {
 			OriginalReasoning: originalReasoning,
 		}
 	}
-}
-
-type combinedRenderMsg struct {
-	Reasoning         string
-	Content           string
-	ReasoningDirty    bool
-	ContentDirty      bool
-	OriginalContent   string
-	OriginalReasoning string
 }
 
 func (u *UI) FullView() string {
@@ -578,12 +496,12 @@ func (u *UI) appendPrompts(out string) string {
 func (u *UI) renderConfirmPrompt() string {
 	choices := lipgloss.NewStyle().Foreground(lipgloss.Color("240")).Render("[y/N]")
 	prompt := fmt.Sprintf("⚡ %s%s\n%s\n\n%s ",
-		headerStyle.Render("Run command:"),
-		infoStyle.Render(u.confirmCmd),
+		render.HeaderStyle.Render("Run command:"),
+		render.InfoStyle.Render(u.confirmCmd),
 		lipgloss.NewStyle().Foreground(lipgloss.Color("245")).Italic(true).Render("(copied to clipboard)"),
 		choices+lipgloss.NewStyle().Foreground(lipgloss.Color("240")).Render(" • c: copy all"))
 
-	promptView := "\n" + borderStyle.Render(prompt) + "\n"
+	promptView := "\n" + render.BorderStyle.Render(prompt) + "\n"
 	if u.content == "" && u.reasoning == "" {
 		return promptView
 	}
@@ -592,18 +510,18 @@ func (u *UI) renderConfirmPrompt() string {
 
 func (u *UI) renderAskMorePrompt() string {
 	prompt := fmt.Sprintf("💬 %s %s",
-		headerStyle.Render("More input?"),
+		render.HeaderStyle.Render("More input?"),
 		lipgloss.NewStyle().Foreground(lipgloss.Color("240")).Render("[y/N] • c: copy all"))
-	return "\n" + borderStyle.Render(prompt) + "\n"
+	return "\n" + render.BorderStyle.Render(prompt) + "\n"
 }
 
 func (u *UI) renderInputPrompt() string {
-	return "\n" + borderStyle.Render(u.inputModel.View()) + "\n"
+	return "\n" + render.BorderStyle.Render(u.inputModel.View()) + "\n"
 }
 
 func (u *UI) appendErrors(out string) string {
 	if u.err != nil {
-		return out + fmt.Sprintf("\n%s\n", errorStyle.Render(fmt.Sprintf("Error: %v", u.err)))
+		return out + fmt.Sprintf("\n%s\n", render.ErrorStyle.Render(fmt.Sprintf("Error: %v", u.err)))
 	}
 	return out
 }
@@ -651,7 +569,7 @@ func (u *UI) RunInteractiveSession() {
 
 		u.Send(busyMsg(true))
 		u.Send(summarizingMsg(true))
-		ManageContext(u.ctx, u.client, &u.request)
+		terminal.ManageContext(u.ctx, u.client, &u.request)
 		u.Send(summarizingMsg(false))
 
 		workerCh := make(chan ollama.StreamResponse)
@@ -660,7 +578,7 @@ func (u *UI) RunInteractiveSession() {
 		var assistantMsg ollama.Message
 		assistantMsg.Role = "assistant"
 
-		sh := NewStreamHandler(
+		sh := render.NewStreamHandler(
 			func(text string) { u.Send(responseMsg(text)) },
 			func(filename, content string, isTemp bool) {
 				u.Send(fileSavedMsg{Filename: filename, Content: content, IsTemp: isTemp})
@@ -711,7 +629,7 @@ func (u *UI) RunInteractiveSession() {
 		// Check for tool calls that need immediate execution
 		var toolResponses []ollama.Message
 		hasRunCommand := false
-		executor := NewToolExecutor()
+		executor := tools.NewToolExecutor()
 		uiHandler := &uiToolHandler{
 			ui: u,
 		}
@@ -756,7 +674,7 @@ func (u *UI) RunInteractiveSession() {
 }
 
 func (u *UI) renderFileSavedLines(filename string) string {
-	var f SavedFile
+	var f terminal.SavedFile
 	for _, sf := range u.savedFiles {
 		if sf.Path == filename {
 			f = sf
@@ -804,7 +722,7 @@ func (u *UI) GetContent() string     { return u.content }
 func (u *UI) GetReasoning() string   { return u.reasoning }
 func (u *UI) GetError() error        { return u.err }
 func (u *UI) ToolWasCalled() bool    { return u.toolWasCalled }
-func (u *UI) GetSavedFiles() []SavedFile {
+func (u *UI) GetSavedFiles() []terminal.SavedFile {
 	return u.savedFiles
 }
 func (u *UI) GetMessages() []ollama.Message {

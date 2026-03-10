@@ -1,4 +1,4 @@
-package terminal
+package render
 
 import (
 	"fmt"
