@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"
@@ -101,6 +102,9 @@ type UI struct {
 	lastWContent      int
 	renderedReasoning string
 	renderedContent   string
+	styledReasoning   string
+	styledContent     string
+	combinedView      string
 	reasoningDirty    bool
 	contentDirty      bool
 	isActive          bool
@@ -310,6 +314,36 @@ func (u *UI) handleCombinedRenderMsg(msg combinedRenderMsg) (tea.Model, tea.Cmd)
 		if len(u.reasoning) == len(msg.OriginalReasoning) {
 			u.reasoningDirty = false
 		}
+
+		// Limit to last 7 lines
+		displayReasoning := u.renderedReasoning
+		maxReasoningLines := 7
+		count := 0
+		lastIdx := 0
+		found := false
+		for i := len(displayReasoning) - 1; i >= 0; i-- {
+			if displayReasoning[i] == '\n' {
+				count++
+				if count >= maxReasoningLines {
+					lastIdx = i + 1
+					found = true
+					break
+				}
+			}
+		}
+		if found {
+			displayReasoning = "...\n" + displayReasoning[lastIdx:]
+		}
+
+		// Update styled reasoning
+		reasoningStyle := lipgloss.NewStyle().
+			Padding(0, 1).
+			Border(lipgloss.NormalBorder(), true, false, false, false).
+			BorderForeground(lipgloss.Color("240")).
+			Foreground(lipgloss.Color("245")).
+			MaxHeight(maxReasoningLines + 2). // +2 for border and ellipsis
+			MarginTop(1)
+		u.styledReasoning = reasoningStyle.Render(displayReasoning)
 	}
 	if msg.ContentDirty {
 		u.renderedContent = msg.Content
@@ -317,6 +351,19 @@ func (u *UI) handleCombinedRenderMsg(msg combinedRenderMsg) (tea.Model, tea.Cmd)
 			u.contentDirty = false
 		}
 	}
+
+	// Update combined view (re-calculate whenever reasoning or content changes)
+	if msg.ReasoningDirty || msg.ContentDirty {
+		if u.reasoning != "" {
+			u.combinedView = lipgloss.JoinVertical(lipgloss.Left,
+				u.renderedContent,
+				u.styledReasoning,
+			)
+		} else {
+			u.combinedView = u.renderedContent
+		}
+	}
+
 	u.isRendering = false
 	if u.reasoningDirty || u.contentDirty {
 		return u, u.renderBackground()
@@ -496,22 +543,11 @@ func (u *UI) renderStatus() string {
 }
 
 func (u *UI) renderContentWithMarkers() string {
-	var out string
-	if u.reasoning != "" {
-		reasoningStyle := lipgloss.NewStyle().
-			Padding(0, 1).
-			Border(lipgloss.NormalBorder(), false, false, true, false).
-			BorderForeground(lipgloss.Color("240")).
-			Foreground(lipgloss.Color("245")).
-			MarginBottom(1)
-
-		out = lipgloss.JoinVertical(lipgloss.Left,
-			reasoningStyle.Render(u.renderedReasoning),
-			u.renderedContent,
-		)
-	} else {
-		out = u.renderedContent
+	if u.content == "" && u.reasoning == "" {
+		return u.renderStatus()
 	}
+
+	out := u.combinedView
 
 	for _, f := range u.savedFiles {
 		marker := fmt.Sprintf("@@SAVED:%s@@", f.Path)
@@ -583,10 +619,21 @@ func (u *UI) View() string {
 	out := u.FullView()
 
 	if u.height > 2 && !u.done {
-		lines := strings.Split(out, "\n")
+		// Find the start of the last u.height - 1 lines without splitting the whole string
 		maxLines := u.height - 1
-		if len(lines) > maxLines {
-			out = strings.Join(lines[len(lines)-maxLines:], "\n")
+		count := 0
+		lastIdx := len(out)
+		for i := len(out) - 1; i >= 0; i-- {
+			if out[i] == '\n' {
+				count++
+				if count >= maxLines {
+					lastIdx = i + 1
+					break
+				}
+			}
+		}
+		if count >= maxLines {
+			out = out[lastIdx:]
 		}
 	}
 	return out
@@ -623,6 +670,10 @@ func (u *UI) RunInteractiveSession() {
 			},
 		)
 
+		// Throttling for reasoning updates
+		var reasoningBuf strings.Builder
+		lastReasoningSend := time.Now()
+
 		for msg := range workerCh {
 			if msg.Error != nil {
 				u.Send(errorMsg(msg.Error))
@@ -630,7 +681,14 @@ func (u *UI) RunInteractiveSession() {
 			}
 			if msg.ReasoningContent != "" {
 				assistantMsg.ReasoningContent += msg.ReasoningContent
-				u.Send(reasoningMsg(msg.ReasoningContent))
+				reasoningBuf.WriteString(msg.ReasoningContent)
+
+				// Send reasoning updates at most every 50ms or if buffer is large
+				if time.Since(lastReasoningSend) > 50*time.Millisecond || reasoningBuf.Len() > 500 {
+					u.Send(reasoningMsg(reasoningBuf.String()))
+					reasoningBuf.Reset()
+					lastReasoningSend = time.Now()
+				}
 			}
 			if msg.Content != "" {
 				assistantMsg.Content += msg.Content
@@ -640,6 +698,10 @@ func (u *UI) RunInteractiveSession() {
 				assistantMsg.ToolCalls = append(assistantMsg.ToolCalls, msg.ToolCalls...)
 				u.Send(toolCallMsg(msg.ToolCalls))
 			}
+		}
+		// Flush remaining reasoning
+		if reasoningBuf.Len() > 0 {
+			u.Send(reasoningMsg(reasoningBuf.String()))
 		}
 		sh.Flush()
 
