@@ -10,7 +10,7 @@ import (
 )
 
 // RunSimpleSession provides a non-interactive output for non-TTY or fallback
-func RunSimpleSession(client *ollama.Client, req ollama.ChatRequest) (string, []ollama.Message, error) {
+func RunSimpleSession(client ChatClient, req ollama.ChatRequest, fs FileService) (string, []ollama.Message, error) {
 	var preparedCmd string
 	for {
 		summarized, _ := ManageContext(context.Background(), client, &req)
@@ -25,6 +25,7 @@ func RunSimpleSession(client *ollama.Client, req ollama.ChatRequest) (string, []
 		assistantMsg.Role = "assistant"
 
 		sh := NewStreamHandler(
+			fs,
 			func(text string) { fmt.Print(text) },
 			func(filename, content string, isTemp bool) {
 				if isTemp {

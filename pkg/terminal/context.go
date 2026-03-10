@@ -11,7 +11,7 @@ import (
 
 // ManageContext checks the conversation history token limit and summarizes if necessary.
 // It returns true if summarization occurred, false otherwise.
-func ManageContext(ctx context.Context, client *ollama.Client, req *ollama.ChatRequest) (bool, error) {
+func ManageContext(ctx context.Context, client ChatClient, req *ollama.ChatRequest) (bool, error) {
 	if req == nil || len(req.Messages) <= 2 {
 		return false, nil // Not enough messages to manage
 	}

@@ -200,8 +200,10 @@ func main() {
 		Options:  cfg.ModelOptions,
 	}
 
+	fs := terminal.NewDefaultFileService()
+
 	if !isatty.IsTerminal(os.Stdout.Fd()) {
-		cmd, finalMessages, err := terminal.RunSimpleSession(client, reqBody)
+		cmd, finalMessages, err := terminal.RunSimpleSession(client, reqBody, fs)
 		if err != nil {
 			fmt.Printf("Error: %v\n", err)
 			os.Exit(1)
@@ -222,7 +224,8 @@ func main() {
 		return
 	}
 
-	ui := terminal.NewUI(client, reqBody)
+	renderer := terminal.NewDefaultRenderer("")
+	ui := terminal.NewUI(client, renderer, fs, reqBody)
 	p := tea.NewProgram(ui, tea.WithMouseCellMotion())
 	ui.SetSender(p.Send)
 
