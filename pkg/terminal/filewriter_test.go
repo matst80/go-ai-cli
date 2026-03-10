@@ -10,6 +10,7 @@ import (
 func TestStreamHandler_TempFile(t *testing.T) {
 	var savedFile string
 	sh := NewStreamHandler(
+		nil,
 		func(text string) {},
 		func(filename, content string, isTemp bool) { savedFile = filename },
 		func(cmd string) {},
@@ -40,6 +41,7 @@ func TestStreamHandler_TempFile(t *testing.T) {
 func TestStreamHandler_ExplicitFile(t *testing.T) {
 	var savedFile string
 	sh := NewStreamHandler(
+		nil,
 		func(text string) {},
 		func(filename, content string, isTemp bool) { savedFile = filename },
 		func(cmd string) {},
@@ -62,6 +64,7 @@ func TestStreamHandler_BashAndTemp(t *testing.T) {
 	var savedFile string
 	var suggestedCmd string
 	sh := NewStreamHandler(
+		nil,
 		func(text string) {},
 		func(filename, content string, isTemp bool) { savedFile = filename },
 		func(cmd string) { suggestedCmd = cmd },
@@ -86,6 +89,7 @@ func TestStreamHandler_OneLinerSkip(t *testing.T) {
 	var savedFile string
 	var suggestedCmd string
 	sh := NewStreamHandler(
+		nil,
 		func(text string) {},
 		func(filename, content string, isTemp bool) { savedFile = filename },
 		func(cmd string) { suggestedCmd = cmd },

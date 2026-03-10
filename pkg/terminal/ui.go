@@ -9,7 +9,6 @@ import (
 
 	"github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/glamour"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/matst80/go-ai-cli/pkg/ollama"
 )
@@ -76,8 +75,9 @@ type UI struct {
 	content           string
 	reasoning         string
 	err               error
-	renderer          *glamour.TermRenderer
-	client            *ollama.Client
+	renderer          Renderer
+	fs                FileService
+	client            ChatClient
 	request           ollama.ChatRequest
 	done              bool
 	width             int
@@ -96,8 +96,8 @@ type UI struct {
 	inputModel        InputModel
 	moreInputCh       chan string
 	height            int
-	rReasoning        *glamour.TermRenderer
-	rContent          *glamour.TermRenderer
+	rReasoning        Renderer
+	rContent          Renderer
 	lastWReasoning    int
 	lastWContent      int
 	renderedReasoning string
@@ -133,14 +133,17 @@ type moreInputMsg chan string
 type busyMsg bool
 
 // NewUI creates a new UI model
-func NewUI(client *ollama.Client, req ollama.ChatRequest) *UI {
+func NewUI(client ChatClient, renderer Renderer, fs FileService, req ollama.ChatRequest) *UI {
 	ctx, cancel := context.WithCancel(context.Background())
 	s := spinner.New()
 	s.Spinner = spinner.Dot
 	s.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("205"))
+
 	return &UI{
 		client:      client,
 		request:     req,
+		renderer:    renderer,
+		fs:          fs,
 		ctx:         ctx,
 		cancel:      cancel,
 		spinner:     s,
@@ -438,28 +441,20 @@ func (u *UI) renderBackground() tea.Cmd {
 	if style == "" {
 		style = os.Getenv("GLAMOUR_STYLE")
 	}
-	var styleOpt glamour.TermRendererOption
-	if style != "" && style != "auto" {
-		styleOpt = glamour.WithStandardStyle(style)
-	} else {
-		styleOpt = glamour.WithAutoStyle()
+
+	// Re-use the injected renderer, or create one if nil
+	if u.renderer == nil {
+		u.renderer = NewDefaultRenderer(style)
 	}
 
-	if u.rReasoning == nil || u.lastWReasoning != w-4 {
-		r, _ := glamour.NewTermRenderer(styleOpt, glamour.WithWordWrap(w-4))
-		u.rReasoning = r
-		u.lastWReasoning = w - 4
-	}
-	if u.rContent == nil || u.lastWContent != w-2 {
-		r, _ := glamour.NewTermRenderer(styleOpt, glamour.WithWordWrap(w-2))
-		u.rContent = r
-		u.lastWContent = w - 2
-	}
-
-	rReasoning := u.rReasoning
-	rContent := u.rContent
+	// Since we are sharing a single injected u.renderer, we shouldn't have separate rContent and rReasoning instances in the struct.
+	// But glamour renderer is slow to recreate on every render if we just toggle width.
+	// For full DI without a factory, we will just use `u.renderer` and accept the width toggle
+	// in the render loop if both change, but to minimize changes and be completely correct,
+	// we will just set the width right before we render the parts.
 
 	// Capture state synchronously
+	renderer := u.renderer
 	originalContent := u.content
 	originalReasoning := u.reasoning
 	reasoningWasDirty := u.reasoningDirty
@@ -470,8 +465,9 @@ func (u *UI) renderBackground() tea.Cmd {
 		var err error
 
 		if reasoningWasDirty {
-			if rReasoning != nil {
-				renderedReasoning, err = rReasoning.Render("_Thinking..._\n" + originalReasoning)
+			if renderer != nil {
+				renderer.SetWidth(w - 4)
+				renderedReasoning, err = renderer.Render("_Thinking..._\n" + originalReasoning)
 				if err != nil {
 					renderedReasoning = "_Thinking..._\n" + originalReasoning
 				}
@@ -486,8 +482,9 @@ func (u *UI) renderBackground() tea.Cmd {
 				displayContent += "\n```"
 			}
 			displayContent = escapeHTMLOutsideCodeBlocks(displayContent)
-			if rContent != nil {
-				renderedContent, err = rContent.Render(displayContent)
+			if renderer != nil {
+				renderer.SetWidth(w - 2)
+				renderedContent, err = renderer.Render(displayContent)
 				if err != nil {
 					renderedContent = displayContent
 				}
@@ -661,6 +658,7 @@ func (u *UI) RunInteractiveSession() {
 		assistantMsg.Role = "assistant"
 
 		sh := NewStreamHandler(
+			u.fs,
 			func(text string) { u.Send(responseMsg(text)) },
 			func(filename, content string, isTemp bool) {
 				u.Send(fileSavedMsg{Filename: filename, Content: content, IsTemp: isTemp})

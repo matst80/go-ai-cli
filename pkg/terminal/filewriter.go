@@ -18,6 +18,7 @@ import (
 // Otherwise, it's saved to a unique temporary file in ~/.ai-cli/tmp.
 // If the language is 'bash' or 'sh', it is also suggested as a command.
 type StreamHandler struct {
+	fs               FileService
 	emit             func(text string)                           // forward non-block text
 	fileSaved        func(filename, content string, isTemp bool) // notify on file save
 	commandSuggested func(command string)                        // notify on command suggestion
@@ -29,8 +30,11 @@ type StreamHandler struct {
 	lineBuffer       string // partial line accumulator
 }
 
-func NewStreamHandler(emit func(string), fileSaved func(string, string, bool), commandSuggested func(string)) *StreamHandler {
-	return &StreamHandler{emit: emit, fileSaved: fileSaved, commandSuggested: commandSuggested}
+func NewStreamHandler(fs FileService, emit func(string), fileSaved func(string, string, bool), commandSuggested func(string)) *StreamHandler {
+	if fs == nil {
+		fs = NewDefaultFileService()
+	}
+	return &StreamHandler{fs: fs, emit: emit, fileSaved: fileSaved, commandSuggested: commandSuggested}
 }
 
 // Feed processes a chunk of streamed text (may be partial lines).
@@ -163,11 +167,11 @@ func (sh *StreamHandler) completeBlock() {
 	}
 
 	dir := filepath.Dir(filename)
-	if err := os.MkdirAll(dir, 0755); err != nil {
+	if err := sh.fs.MkdirAll(dir, 0755); err != nil {
 		sh.emit(fmt.Sprintf("\n❌ **Error creating dir:** %v\n", err))
 		return
 	}
-	if err := os.WriteFile(filename, []byte(content), 0644); err != nil {
+	if err := sh.fs.WriteFile(filename, []byte(content), 0644); err != nil {
 		sh.emit(fmt.Sprintf("\n❌ **Error writing file:** %v\n", err))
 		return
 	}
