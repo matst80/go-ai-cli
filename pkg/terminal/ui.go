@@ -36,47 +36,38 @@ var (
 func escapeHTMLOutsideCodeBlocks(content string) string {
 	var result strings.Builder
 	inCodeBlock := false
+	inInlineCode := false
 
 	lines := strings.Split(content, "\n")
 	for i, line := range lines {
 		trimmed := strings.TrimSpace(line)
 		if strings.HasPrefix(trimmed, "```") {
 			inCodeBlock = !inCodeBlock
-			result.WriteString(line)
-			if i < len(lines)-1 {
-				result.WriteString("\n")
-			}
-			continue
+		} else if !inCodeBlock {
+			line = processInlineCode(line, &inInlineCode)
 		}
 
-		if inCodeBlock {
-			result.WriteString(line)
-			if i < len(lines)-1 {
-				result.WriteString("\n")
-			}
-			continue
-		}
-
-		inInlineCode := false
-		var processed strings.Builder
-		chars := []rune(line)
-		for j := 0; j < len(chars); j++ {
-			if chars[j] == '`' {
-				inInlineCode = !inInlineCode
-				processed.WriteRune(chars[j])
-			} else if chars[j] == '<' && !inInlineCode {
-				processed.WriteString("\\<")
-			} else {
-				processed.WriteRune(chars[j])
-			}
-		}
-
-		result.WriteString(processed.String())
+		result.WriteString(line)
 		if i < len(lines)-1 {
 			result.WriteString("\n")
 		}
 	}
 	return result.String()
+}
+
+func processInlineCode(line string, inInlineCode *bool) string {
+	var processed strings.Builder
+	chars := []rune(line)
+	for j := 0; j < len(chars); j++ {
+		if chars[j] == '`' {
+			*inInlineCode = !*inInlineCode
+		} else if chars[j] == '<' && !*inInlineCode {
+			processed.WriteString("\\<")
+			continue
+		}
+		processed.WriteRune(chars[j])
+	}
+	return processed.String()
 }
 
 // UI represents the tool's Bubble Tea model and methods
@@ -166,161 +157,222 @@ func (u *UI) Init() tea.Cmd {
 func (u *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case spinner.TickMsg:
-		if !u.isActive {
-			return u, nil
-		}
-		var cmd tea.Cmd
-		u.spinner, cmd = u.spinner.Update(msg)
-		return u, cmd
+		return u.handleTickMsg(msg)
 	case tea.KeyMsg:
-		if msg.Type == tea.KeyCtrlC {
-			return u, tea.Quit
-		}
-		if msg.Type == tea.KeyEsc {
-			u.cancel()
-			return u, tea.Quit
-		}
-		if u.confirmCh != nil {
-			if msg.String() == "y" || msg.String() == "Y" {
-				u.confirmCh <- true
-				u.confirmCh = nil
-				u.confirmCmd = ""
-				return u, nil
-			} else if msg.String() == "n" || msg.String() == "N" {
-				u.confirmCh <- false
-				u.confirmCh = nil
-				u.confirmCmd = ""
-				return u, nil
-			}
-		} else if u.askMoreInput {
-			if msg.String() == "y" || msg.String() == "Y" {
-				u.askMoreInput = false
-				u.inputMode = true
-				u.inputModel = NewInputModel()
-				u.inputModel.Title = "Follow-up prompt:"
-				u.inputModel.Prompt = "ctrl+s / ctrl+j / alt+enter to submit • esc/ctrl+c to cancel"
-				u.inputModel.Textarea.SetWidth(u.width - 10)
-				return u, u.inputModel.Init()
-			} else if msg.String() == "n" || msg.String() == "N" || msg.Type == tea.KeyEnter {
-				u.askMoreInput = false
-				ch := u.moreInputCh
-				u.moreInputCh = nil
-				go func() { ch <- "" }()
-				return u, nil
-			} else if msg.String() == "c" {
-				CopyToClipboard(u.content)
-				u.clipboardMsg = "Full conversation copied to clipboard!"
-				return u, nil
-			}
-		} else if u.inputMode {
-			if msg.Type == tea.KeyCtrlC || msg.Type == tea.KeyEsc {
-				u.inputMode = false
-				ch := u.moreInputCh
-				u.moreInputCh = nil
-				go func() { ch <- "" }()
-				return u, nil
-			}
-
-			var cmd tea.Cmd
-			m, cmd := u.inputModel.Update(msg)
-			u.inputModel = m.(InputModel)
-			if u.inputModel.Quitting {
-				u.inputMode = false
-				ch := u.moreInputCh
-				u.moreInputCh = nil
-				val := u.inputModel.Value()
-				go func() { ch <- val }()
-				return u, u.spinner.Tick
-			}
-			return u, cmd
-		}
-
-		if msg.String() == "c" {
-			CopyToClipboard(u.content)
-			u.clipboardMsg = "Full conversation copied to clipboard!"
-			return u, nil
-		}
+		return u.handleKeyMsg(msg)
 	case tea.WindowSizeMsg:
-		u.width = msg.Width
-		u.height = msg.Height
-		u.renderer = nil
-		u.rReasoning = nil
-		u.rContent = nil
-		u.reasoningDirty = true
-		u.contentDirty = true
-		return u, nil
+		return u.handleWindowSizeMsg(msg)
 	case responseMsg:
-		u.content += string(msg)
-		u.contentDirty = true
-		return u, u.renderBackground()
+		return u.handleResponseMsg(msg)
 	case reasoningMsg:
-		u.reasoning += string(msg)
-		u.reasoningDirty = true
-		return u, u.renderBackground()
+		return u.handleReasoningMsg(msg)
 	case combinedRenderMsg:
-		if msg.ReasoningDirty {
-			u.renderedReasoning = msg.Reasoning
-			if len(u.reasoning) == len(msg.OriginalReasoning) {
-				u.reasoningDirty = false
-			}
-		}
-		if msg.ContentDirty {
-			u.renderedContent = msg.Content
-			if len(u.content) == len(msg.OriginalContent) {
-				u.contentDirty = false
-			}
-		}
-		u.isRendering = false
-		// If anything became dirty while we were rendering, trigger another pass
-		if u.reasoningDirty || u.contentDirty {
-			return u, u.renderBackground()
-		}
-		return u, nil
+		return u.handleCombinedRenderMsg(msg)
 	case busyMsg:
-		u.isActive = bool(msg)
-		if u.isActive {
-			return u, u.spinner.Tick
-		}
-		return u, nil
+		return u.handleBusyMsg(msg)
 	case toolCallMsg:
-		u.toolWasCalled = true
-		return u, nil
+		return u.handleToolCallMsg(msg)
 	case confirmationMsg:
-		u.confirmCh = msg.Ch
-		u.confirmCmd = msg.Command
-		return u, nil
+		return u.handleConfirmationMsg(msg)
 	case errorMsg:
-		u.err = msg
-		u.done = true
-		return u, tea.Quit
+		return u.handleErrorMsg(msg)
 	case fileSavedMsg:
-		u.savedFiles = append(u.savedFiles, SavedFile{
-			Path:    msg.Filename,
-			Content: msg.Content,
-			IsTemp:  msg.IsTemp,
-		})
-		return u, nil
+		return u.handleFileSavedMsg(msg)
 	case commandMsg:
-		u.preparedCmd = string(msg)
-		CopyToClipboard(string(msg))
-		return u, nil
+		return u.handleCommandMsg(msg)
 	case summarizingMsg:
-		u.summarizing = bool(msg)
-		return u, nil
+		return u.handleSummarizingMsg(msg)
 	case tea.MouseMsg:
-		if msg.Type == tea.MouseLeft && u.confirmCh != nil {
-			// Basic click detection for [y/N]
-			// This is just to show mouse support is active
-		}
+		return u, nil
 	case doneMsg:
-		u.done = true
 		return u, tea.Quit
 	case moreInputMsg:
-		u.moreInputCh = msg
-		u.askMoreInput = true
-		u.isActive = false
+		return u.handleMoreInputMsg(msg)
+	}
+	return u, nil
+}
+
+func (u *UI) handleTickMsg(msg spinner.TickMsg) (tea.Model, tea.Cmd) {
+	if !u.isActive {
 		return u, nil
 	}
+	var cmd tea.Cmd
+	u.spinner, cmd = u.spinner.Update(msg)
+	return u, cmd
+}
+
+func (u *UI) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if msg.Type == tea.KeyCtrlC || msg.Type == tea.KeyEsc {
+		u.cancel()
+		return u, tea.Quit
+	}
+
+	if u.confirmCh != nil {
+		return u.handleConfirmInput(msg.String())
+	}
+	if u.askMoreInput {
+		return u.handleAskMoreInput(msg)
+	}
+	if u.inputMode {
+		return u.handleInputMode(msg)
+	}
+
+	if msg.String() == "c" {
+		CopyToClipboard(u.content)
+		u.clipboardMsg = "Full conversation copied to clipboard!"
+	}
+	return u, nil
+}
+
+func (u *UI) handleConfirmInput(input string) (tea.Model, tea.Cmd) {
+	if input == "y" || input == "Y" {
+		u.confirmCh <- true
+	} else if input == "n" || input == "N" {
+		u.confirmCh <- false
+	}
+	u.confirmCh = nil
+	u.confirmCmd = ""
+	return u, nil
+}
+
+func (u *UI) handleAskMoreInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	input := msg.String()
+	if input == "y" || input == "Y" {
+		u.askMoreInput = false
+		u.inputMode = true
+		u.inputModel = NewInputModel()
+		u.inputModel.Title = "Follow-up prompt:"
+		u.inputModel.Prompt = "ctrl+s / ctrl+j / alt+enter to submit • esc/ctrl+c to cancel"
+		u.inputModel.Textarea.SetWidth(u.width - 10)
+		return u, u.inputModel.Init()
+	}
+	if input == "n" || input == "N" || msg.Type == tea.KeyEnter {
+		u.askMoreInput = false
+		ch := u.moreInputCh
+		u.moreInputCh = nil
+		go func() { ch <- "" }()
+		return u, nil
+	}
+	if input == "c" {
+		CopyToClipboard(u.content)
+		u.clipboardMsg = "Full conversation copied to clipboard!"
+	}
+	return u, nil
+}
+
+func (u *UI) handleInputMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if msg.Type == tea.KeyCtrlC || msg.Type == tea.KeyEsc {
+		u.inputMode = false
+		ch := u.moreInputCh
+		u.moreInputCh = nil
+		go func() { ch <- "" }()
+		return u, nil
+	}
+
+	m, cmd := u.inputModel.Update(msg)
+	u.inputModel = m.(InputModel)
+	if u.inputModel.Quitting {
+		u.inputMode = false
+		ch := u.moreInputCh
+		u.moreInputCh = nil
+		go func() { ch <- u.inputModel.Value() }()
+		return u, u.spinner.Tick
+	}
+	return u, cmd
+}
+
+func (u *UI) handleWindowSizeMsg(msg tea.WindowSizeMsg) (tea.Model, tea.Cmd) {
+	u.width = msg.Width
+	u.height = msg.Height
+	u.renderer = nil
+	u.rReasoning = nil
+	u.rContent = nil
+	u.reasoningDirty = true
+	u.contentDirty = true
+	return u, nil
+}
+
+func (u *UI) handleResponseMsg(msg responseMsg) (tea.Model, tea.Cmd) {
+	u.content += string(msg)
+	u.contentDirty = true
+	return u, u.renderBackground()
+}
+
+func (u *UI) handleReasoningMsg(msg reasoningMsg) (tea.Model, tea.Cmd) {
+	u.reasoning += string(msg)
+	u.reasoningDirty = true
+	return u, u.renderBackground()
+}
+
+func (u *UI) handleCombinedRenderMsg(msg combinedRenderMsg) (tea.Model, tea.Cmd) {
+	if msg.ReasoningDirty {
+		u.renderedReasoning = msg.Reasoning
+		if len(u.reasoning) == len(msg.OriginalReasoning) {
+			u.reasoningDirty = false
+		}
+	}
+	if msg.ContentDirty {
+		u.renderedContent = msg.Content
+		if len(u.content) == len(msg.OriginalContent) {
+			u.contentDirty = false
+		}
+	}
+	u.isRendering = false
+	if u.reasoningDirty || u.contentDirty {
+		return u, u.renderBackground()
+	}
+	return u, nil
+}
+
+func (u *UI) handleBusyMsg(msg busyMsg) (tea.Model, tea.Cmd) {
+	u.isActive = bool(msg)
+	if u.isActive {
+		return u, u.spinner.Tick
+	}
+	return u, nil
+}
+
+func (u *UI) handleToolCallMsg(msg toolCallMsg) (tea.Model, tea.Cmd) {
+	u.toolWasCalled = true
+	return u, nil
+}
+
+func (u *UI) handleConfirmationMsg(msg confirmationMsg) (tea.Model, tea.Cmd) {
+	u.confirmCh = msg.Ch
+	u.confirmCmd = msg.Command
+	return u, nil
+}
+
+func (u *UI) handleErrorMsg(msg errorMsg) (tea.Model, tea.Cmd) {
+	u.err = msg
+	u.done = true
+	return u, tea.Quit
+}
+
+func (u *UI) handleFileSavedMsg(msg fileSavedMsg) (tea.Model, tea.Cmd) {
+	u.savedFiles = append(u.savedFiles, SavedFile{
+		Path:    msg.Filename,
+		Content: msg.Content,
+		IsTemp:  msg.IsTemp,
+	})
+	return u, nil
+}
+
+func (u *UI) handleCommandMsg(msg commandMsg) (tea.Model, tea.Cmd) {
+	u.preparedCmd = string(msg)
+	CopyToClipboard(string(msg))
+	return u, nil
+}
+
+func (u *UI) handleSummarizingMsg(msg summarizingMsg) (tea.Model, tea.Cmd) {
+	u.summarizing = bool(msg)
+	return u, nil
+}
+
+func (u *UI) handleMoreInputMsg(msg moreInputMsg) (tea.Model, tea.Cmd) {
+	u.moreInputCh = msg
+	u.askMoreInput = true
+	u.isActive = false
 	return u, nil
 }
 
@@ -418,77 +470,112 @@ type combinedRenderMsg struct {
 }
 
 func (u *UI) FullView() string {
-	var out string
+	out := u.buildMainContent()
+	out = u.appendPrompts(out)
+	out = u.appendErrors(out)
+	out = u.appendClipboardMsg(out)
+	return out
+}
+
+func (u *UI) buildMainContent() string {
 	if u.content == "" && u.reasoning == "" {
-		status := fmt.Sprintf(" %s Thinking...", u.spinner.View())
-		if u.toolWasCalled {
-			status = fmt.Sprintf(" %s Preparing command...", u.spinner.View())
-		}
-		if u.summarizing {
-			status = fmt.Sprintf(" %s Summarizing context...", u.spinner.View())
-		}
-		out = lipgloss.NewStyle().Foreground(lipgloss.Color("240")).Render(status)
+		return u.renderStatus()
+	}
+	return u.renderContentWithMarkers()
+}
+
+func (u *UI) renderStatus() string {
+	status := fmt.Sprintf(" %s Thinking...", u.spinner.View())
+	if u.toolWasCalled {
+		status = fmt.Sprintf(" %s Preparing command...", u.spinner.View())
+	}
+	if u.summarizing {
+		status = fmt.Sprintf(" %s Summarizing context...", u.spinner.View())
+	}
+	return lipgloss.NewStyle().Foreground(lipgloss.Color("240")).Render(status)
+}
+
+func (u *UI) renderContentWithMarkers() string {
+	var out string
+	if u.reasoning != "" {
+		reasoningStyle := lipgloss.NewStyle().
+			Padding(0, 1).
+			Border(lipgloss.NormalBorder(), false, false, true, false).
+			BorderForeground(lipgloss.Color("240")).
+			Foreground(lipgloss.Color("245")).
+			MarginBottom(1)
+
+		out = lipgloss.JoinVertical(lipgloss.Left,
+			reasoningStyle.Render(u.renderedReasoning),
+			u.renderedContent,
+		)
 	} else {
-		if u.reasoning != "" {
-			reasoningStyle := lipgloss.NewStyle().
-				Padding(0, 1).
-				Border(lipgloss.NormalBorder(), false, false, true, false).
-				BorderForeground(lipgloss.Color("240")).
-				Foreground(lipgloss.Color("245")).
-				MarginBottom(1)
+		out = u.renderedContent
+	}
 
-			out = lipgloss.JoinVertical(lipgloss.Left,
-				reasoningStyle.Render(u.renderedReasoning),
-				u.renderedContent,
-			)
-		} else {
-			out = u.renderedContent
-		}
-
-		// Post-process markers for saved files
-		for _, f := range u.savedFiles {
-			marker := fmt.Sprintf("@@SAVED:%s@@", f.Path)
-			if strings.Contains(out, marker) {
-				out = strings.ReplaceAll(out, marker, u.renderFileSavedLines(f.Path))
-			}
-		}
-
-		if u.isActive && !u.done && u.confirmCh == nil {
-			out += fmt.Sprintf("\n %s\n", u.spinner.View())
+	for _, f := range u.savedFiles {
+		marker := fmt.Sprintf("@@SAVED:%s@@", f.Path)
+		if strings.Contains(out, marker) {
+			out = strings.ReplaceAll(out, marker, u.renderFileSavedLines(f.Path))
 		}
 	}
 
+	if u.isActive && !u.done && u.confirmCh == nil {
+		out += fmt.Sprintf("\n %s\n", u.spinner.View())
+	}
+	return out
+}
+
+func (u *UI) appendPrompts(out string) string {
 	if u.confirmCh != nil {
-		choices := lipgloss.NewStyle().Foreground(lipgloss.Color("240")).Render("[y/N]")
-		prompt := fmt.Sprintf("⚡ %s%s\n%s\n\n%s ",
-			headerStyle.Render("Run command:"),
-			infoStyle.Render(u.confirmCmd),
-			lipgloss.NewStyle().Foreground(lipgloss.Color("245")).Italic(true).Render("(copied to clipboard)"),
-			choices+lipgloss.NewStyle().Foreground(lipgloss.Color("240")).Render(" • c: copy all"))
-
-		promptView := "\n" + borderStyle.Render(prompt) + "\n"
-		if u.content == "" && u.reasoning == "" {
-			// If we're just showing status, replace it
-			out = promptView
-		} else {
-			out += promptView
-		}
-	} else if u.askMoreInput {
-		prompt := fmt.Sprintf("💬 %s %s",
-			headerStyle.Render("More input?"),
-			lipgloss.NewStyle().Foreground(lipgloss.Color("240")).Render("[y/N] • c: copy all"))
-		out += "\n" + borderStyle.Render(prompt) + "\n"
-	} else if u.inputMode {
-		out += "\n" + borderStyle.Render(u.inputModel.View()) + "\n"
+		return out + u.renderConfirmPrompt()
 	}
+	if u.askMoreInput {
+		return out + u.renderAskMorePrompt()
+	}
+	if u.inputMode {
+		return out + u.renderInputPrompt()
+	}
+	return out
+}
+
+func (u *UI) renderConfirmPrompt() string {
+	choices := lipgloss.NewStyle().Foreground(lipgloss.Color("240")).Render("[y/N]")
+	prompt := fmt.Sprintf("⚡ %s%s\n%s\n\n%s ",
+		headerStyle.Render("Run command:"),
+		infoStyle.Render(u.confirmCmd),
+		lipgloss.NewStyle().Foreground(lipgloss.Color("245")).Italic(true).Render("(copied to clipboard)"),
+		choices+lipgloss.NewStyle().Foreground(lipgloss.Color("240")).Render(" • c: copy all"))
+
+	promptView := "\n" + borderStyle.Render(prompt) + "\n"
+	if u.content == "" && u.reasoning == "" {
+		return promptView
+	}
+	return promptView
+}
+
+func (u *UI) renderAskMorePrompt() string {
+	prompt := fmt.Sprintf("💬 %s %s",
+		headerStyle.Render("More input?"),
+		lipgloss.NewStyle().Foreground(lipgloss.Color("240")).Render("[y/N] • c: copy all"))
+	return "\n" + borderStyle.Render(prompt) + "\n"
+}
+
+func (u *UI) renderInputPrompt() string {
+	return "\n" + borderStyle.Render(u.inputModel.View()) + "\n"
+}
+
+func (u *UI) appendErrors(out string) string {
 	if u.err != nil {
-		out += fmt.Sprintf("\n%s\n", errorStyle.Render(fmt.Sprintf("Error: %v", u.err)))
+		return out + fmt.Sprintf("\n%s\n", errorStyle.Render(fmt.Sprintf("Error: %v", u.err)))
 	}
+	return out
+}
 
+func (u *UI) appendClipboardMsg(out string) string {
 	if u.clipboardMsg != "" {
-		out += "\n" + lipgloss.NewStyle().Foreground(lipgloss.Color("2")).Render(" "+u.clipboardMsg)
+		return out + "\n" + lipgloss.NewStyle().Foreground(lipgloss.Color("2")).Render(" "+u.clipboardMsg)
 	}
-
 	return out
 }
 
